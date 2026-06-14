@@ -38,7 +38,7 @@ static bool install_signal_handlers(void)
     return true;
 }
 
-int event_loop_run(EvdiDevice *device)
+int event_loop_run(EvdiDevice *device, LoomControlService *control_service)
 {
     if (!install_signal_handlers()) {
         return 1;
@@ -46,14 +46,30 @@ int event_loop_run(EvdiDevice *device)
 
     log_info("entering event loop; press Ctrl+C to stop");
     while (!g_stop_requested) {
+        control_service_dispatch(control_service);
         evdi_device_request_update(device);
 
-        struct pollfd pfd;
-        pfd.fd = evdi_device_event_fd(device);
-        pfd.events = POLLIN;
-        pfd.revents = 0;
+        struct pollfd pfds[2];
+        int nfds = 0;
 
-        int rc = poll(&pfd, 1, 1000);
+        pfds[nfds].fd = evdi_device_event_fd(device);
+        pfds[nfds].events = POLLIN;
+        pfds[nfds].revents = 0;
+        nfds++;
+
+        const int dbus_fd = control_service_fd(control_service);
+        if (dbus_fd >= 0) {
+            pfds[nfds].fd = dbus_fd;
+            pfds[nfds].events = control_service_events(control_service);
+            if (pfds[nfds].events == 0) {
+                pfds[nfds].events = POLLIN;
+            }
+            pfds[nfds].events |= POLLERR | POLLHUP;
+            pfds[nfds].revents = 0;
+            nfds++;
+        }
+
+        int rc = poll(pfds, nfds, 1000);
         if (rc < 0) {
             if (errno == EINTR) {
                 continue;
@@ -63,15 +79,20 @@ int event_loop_run(EvdiDevice *device)
         }
 
         if (rc == 0) {
+            control_service_dispatch(control_service);
             continue;
         }
 
-        if ((pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
-            log_warn("EVDI event fd returned revents=0x%x", pfd.revents);
+        if ((pfds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+            log_warn("EVDI event fd returned revents=0x%x", pfds[0].revents);
         }
 
-        if ((pfd.revents & POLLIN) != 0) {
+        if ((pfds[0].revents & POLLIN) != 0) {
             evdi_device_handle_events(device);
+        }
+
+        if (nfds > 1 && pfds[1].revents != 0) {
+            control_service_dispatch(control_service);
         }
     }
 

@@ -8,6 +8,9 @@ Monorepo for the Loom tablet-as-secondary-display project.
 - `loomctl`: planned command-line control client for `loomd`.
 - `gnome-shell-extension`: planned GNOME Shell integration for status and display controls.
 - `android`: planned Android tablet client.
+- `src/common`: shared C code for logging, settings, and control protocol constants.
+- `src/loomd`: daemon-specific C code.
+- `src/loomctl`: command-line client C code.
 - `third_party/evdi`: EVDI source embedded as a Git submodule.
 
 Current prototype pipeline:
@@ -52,8 +55,11 @@ make
 This builds the EVDI user-space library from `third_party/evdi/library` and then builds:
 
 ```text
-loomd/build/loomd
+build/loomd
+build/loomctl
 ```
+
+`loomd` and `loomctl` intentionally share code from `src/common`.
 
 ## Run
 
@@ -66,7 +72,7 @@ sudo modprobe evdi
 Run the daemon:
 
 ```bash
-LD_LIBRARY_PATH=third_party/evdi/library sudo -E ./loomd/build/loomd
+LD_LIBRARY_PATH=third_party/evdi/library sudo -E ./build/loomd
 ```
 
 Or:
@@ -78,10 +84,50 @@ make run-loomd
 Useful daemon options:
 
 ```bash
-./loomd/build/loomd --help
-sudo ./loomd/build/loomd --device 0
-sudo ./loomd/build/loomd --no-capture
-sudo ./loomd/build/loomd --dump-frame frame.raw
+./build/loomd --help
+sudo ./build/loomd --device 0
+sudo ./build/loomd --no-capture
+sudo ./build/loomd --dump-frame frame.raw
+```
+
+## Settings and Control
+
+`loomctl` currently manages the local settings file:
+
+```bash
+./build/loomctl status
+./build/loomctl get capture_enabled
+./build/loomctl set capture_enabled false
+./build/loomctl settings
+./build/loomctl settings get capture_enabled
+./build/loomctl settings set capture_enabled false
+./build/loomctl settings path
+```
+
+By default, settings are stored at:
+
+```text
+~/.config/loom/loomd.conf
+```
+
+`loomd` reads that file on startup. Use `--config PATH` if the daemon should read another file:
+
+```bash
+sudo -E ./build/loomd --config "$HOME/.config/loom/loomd.conf"
+```
+
+The intended runtime control plane is D-Bus:
+
+```text
+service:   org.loom.Display
+object:    /org/loom/Display
+interface: org.loom.Display1
+```
+
+`loomd` owns this service on the user session bus when it can connect to that bus. If you run `loomd` with `sudo`, preserve the session bus environment:
+
+```bash
+LD_LIBRARY_PATH=third_party/evdi/library sudo -E ./build/loomd
 ```
 
 ## Repository Setup
@@ -128,4 +174,3 @@ gdbus call --session \
   --object-path /org/gnome/Mutter/DisplayConfig \
   --method org.gnome.Mutter.DisplayConfig.GetCurrentState
 ```
-

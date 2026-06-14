@@ -1,7 +1,8 @@
-#ifndef TABLET_DISPLAYD_EVDI_DEVICE_H
-#define TABLET_DISPLAYD_EVDI_DEVICE_H
+#ifndef LOOMD_EVDI_DEVICE_H
+#define LOOMD_EVDI_DEVICE_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "evdi_lib.h"
 #include "framebuffer.h"
@@ -18,6 +19,11 @@ typedef struct EvdiDevice {
     bool dump_frame;
     bool frame_dumped;
     const char *dump_path;
+    int mode_width;
+    int mode_height;
+    int mode_refresh;
+    uint32_t pixel_area_limit;
+    uint32_t pixel_per_second_limit;
 } EvdiDevice;
 
 bool evdi_device_open(EvdiDevice *device, int requested_device);
@@ -28,4 +34,3 @@ int evdi_device_event_fd(const EvdiDevice *device);
 void evdi_device_handle_events(EvdiDevice *device);
 
 #endif
-

@@ -40,13 +40,13 @@ make loomd
 From this directory:
 
 ```bash
-make
+make -C .. loomd
 ```
 
 The daemon links against the EVDI user-space library built from:
 
 ```text
-../third_party/evdi/library/libevdi.so
+../../third_party/evdi/library/libevdi.so
 ```
 
 ## Run
@@ -60,19 +60,20 @@ sudo modprobe evdi
 Run from the monorepo root:
 
 ```bash
-LD_LIBRARY_PATH=third_party/evdi/library sudo -E ./loomd/build/loomd
+LD_LIBRARY_PATH=third_party/evdi/library sudo -E ./build/loomd
 ```
 
 Or from this directory:
 
 ```bash
-./scripts/run-dev.sh
+./run-dev.sh
 ```
 
 Useful options:
 
 ```bash
 ./build/loomd --help
+sudo ./build/loomd --config "$HOME/.config/loom/loomd.conf"
 sudo ./build/loomd --device 0
 sudo ./build/loomd --no-capture
 sudo ./build/loomd --dump-frame frame.raw
@@ -80,6 +81,18 @@ sudo ./build/loomd --no-dump-frame
 ```
 
 `--no-capture` keeps the fake monitor connected and logs display events only. Without it, `loomd` allocates a CPU buffer after the first mode event, registers it with EVDI, requests updates, logs dirty rectangles, and dumps the first captured frame to `frame.raw` by default.
+
+Settings are shared with `loomctl` through the config parser in `src/common`. The default user config path is `~/.config/loom/loomd.conf`; pass `--config` when running under `sudo` if you want to force a specific user-owned settings file.
+
+When `loomd` can connect to the user session bus, it owns:
+
+```text
+service:   org.loom.Display
+object:    /org/loom/Display
+interface: org.loom.Display1
+```
+
+`loomctl status`, `loomctl get KEY`, and `loomctl set KEY VALUE` call that live service. Runtime setting changes currently update the daemon's in-memory settings; only capture and frame-dump settings are applied immediately to the active EVDI loop.
 
 Stop with Ctrl+C. Shutdown unregisters the framebuffer, disconnects EVDI, frees memory, and closes the handle.
 
@@ -115,4 +128,3 @@ gdbus call --session \
 ```
 
 Expected early logs include an EVDI card selection, monitor connection, DPMS/CRTC/mode events, and then dirty rectangles once GNOME configures the virtual display.
-

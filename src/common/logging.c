@@ -55,26 +55,3 @@ void log_debug(const char *fmt, ...)
     log_with_level(stdout, "debug", fmt, args);
     va_end(args);
 }
-
-static void evdi_log_callback(void *user_data, const char *fmt, ...)
-{
-    (void)user_data;
-
-    va_list args;
-    va_start(args, fmt);
-    log_with_level(stdout, "evdi", fmt, args);
-    va_end(args);
-}
-
-struct evdi_logging logging_evdi_context(void)
-{
-    struct evdi_logging ctx;
-    ctx.function = evdi_log_callback;
-    ctx.user_data = NULL;
-    return ctx;
-}
-
-void logging_install_evdi_logger(void)
-{
-    evdi_set_logging(logging_evdi_context());
-}

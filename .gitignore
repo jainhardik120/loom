@@ -11,9 +11,7 @@ modules.order
 build/
 frame.raw
 
-loomd/build/
-loomd/frame.raw
+src/loomd/frame.raw
 
 .cache/
 .DS_Store
-

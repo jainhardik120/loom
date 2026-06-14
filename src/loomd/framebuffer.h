@@ -1,5 +1,5 @@
-#ifndef TABLET_DISPLAYD_FRAMEBUFFER_H
-#define TABLET_DISPLAYD_FRAMEBUFFER_H
+#ifndef LOOMD_FRAMEBUFFER_H
+#define LOOMD_FRAMEBUFFER_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -22,4 +22,3 @@ bool framebuffer_dump_raw(const Framebuffer *fb, const char *path);
 void framebuffer_log_rects(const struct evdi_rect *rects, int rect_count);
 
 #endif
-
