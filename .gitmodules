@@ -1,0 +1,4 @@
+[submodule "third_party/evdi"]
+	path = third_party/evdi
+	url = git@github.com:jainhardik120/evdi.git
+

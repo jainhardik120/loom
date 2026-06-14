@@ -1,0 +1,288 @@
+#include "evdi_device.h"
+
+#include "logging.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static const unsigned char k_loom_display_edid[] = {
+    0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x4f, 0x52, 0x34, 0x12,
+    0x01, 0x00, 0x00, 0x00, 0x01, 0x1e, 0x01, 0x04, 0xa5, 0x33, 0x1d, 0x78,
+    0x0a, 0xcf, 0x74, 0xa3, 0x57, 0x4c, 0xb0, 0x23, 0x09, 0x48, 0x4c, 0x21,
+    0x08, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x3a, 0x80, 0x18, 0x71, 0x38,
+    0x2d, 0x40, 0x58, 0x2c, 0x45, 0x00, 0xfe, 0x1f, 0x11, 0x00, 0x00, 0x1e,
+    0x00, 0x00, 0x00, 0xfc, 0x00, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x74, 0x20,
+    0x44, 0x69, 0x73, 0x70, 0x6c, 0x0a, 0x00, 0x00, 0x00, 0xff, 0x00, 0x53,
+    0x50, 0x41, 0x43, 0x45, 0x44, 0x45, 0x53, 0x4b, 0x30, 0x31, 0x20, 0x0a,
+    0x00, 0x00, 0x00, 0xfd, 0x00, 0x32, 0x4b, 0x1e, 0x53, 0x11, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xbb
+};
+
+static const char *device_status_name(enum evdi_device_status status)
+{
+    switch (status) {
+    case AVAILABLE:
+        return "available";
+    case UNRECOGNIZED:
+        return "unrecognized";
+    case NOT_PRESENT:
+        return "not-present";
+    }
+    return "unknown";
+}
+
+static int find_available_device(void)
+{
+    for (int i = 0; i < 64; i++) {
+        enum evdi_device_status status = evdi_check_device(i);
+        log_debug("evdi_check_device(%d): %s", i, device_status_name(status));
+        if (status == AVAILABLE) {
+            return i;
+        }
+    }
+
+    log_info("no available EVDI card found; asking kernel module to add one");
+    if (!evdi_add_device()) {
+        log_error("evdi_add_device failed; try: sudo modprobe evdi");
+        return -1;
+    }
+
+    for (int i = 0; i < 64; i++) {
+        enum evdi_device_status status = evdi_check_device(i);
+        log_debug("evdi_check_device(%d): %s", i, device_status_name(status));
+        if (status == AVAILABLE) {
+            return i;
+        }
+    }
+
+    log_error("evdi_add_device succeeded, but no available EVDI card was found");
+    return -1;
+}
+
+static void handle_dpms(int dpms_mode, void *user_data)
+{
+    (void)user_data;
+    log_info("event: dpms mode=%d", dpms_mode);
+}
+
+static void handle_crtc_state(int state, void *user_data)
+{
+    (void)user_data;
+    log_info("event: crtc_state state=%d", state);
+}
+
+static void handle_cursor_set(struct evdi_cursor_set cursor_set, void *user_data)
+{
+    (void)user_data;
+    log_info("event: cursor_set enabled=%u size=%ux%u hot=%d,%d stride=%u format=0x%x bytes=%u",
+             cursor_set.enabled,
+             cursor_set.width,
+             cursor_set.height,
+             cursor_set.hot_x,
+             cursor_set.hot_y,
+             cursor_set.stride,
+             cursor_set.pixel_format,
+             cursor_set.buffer_length);
+    free(cursor_set.buffer);
+}
+
+static void handle_cursor_move(struct evdi_cursor_move cursor_move, void *user_data)
+{
+    (void)user_data;
+    log_info("event: cursor_move x=%d y=%d", cursor_move.x, cursor_move.y);
+}
+
+static void handle_ddcci_data(struct evdi_ddcci_data ddcci_data, void *user_data)
+{
+    (void)user_data;
+    log_info("event: ddcci_data address=0x%x flags=0x%x bytes=%u",
+             ddcci_data.address,
+             ddcci_data.flags,
+             ddcci_data.buffer_length);
+}
+
+static void register_capture_buffer(EvdiDevice *device, struct evdi_mode mode)
+{
+    if (!device->capture_enabled) {
+        return;
+    }
+
+    if (device->framebuffer.registered) {
+        evdi_unregister_buffer(device->handle, device->framebuffer.evdi_buffer.id);
+        device->framebuffer.registered = false;
+    }
+    framebuffer_destroy(&device->framebuffer);
+    device->update_in_flight = false;
+
+    if (!framebuffer_init(&device->framebuffer, 0, &mode)) {
+        log_error("capture disabled because framebuffer allocation failed");
+        device->capture_enabled = false;
+        return;
+    }
+
+    evdi_register_buffer(device->handle, device->framebuffer.evdi_buffer);
+    device->framebuffer.registered = true;
+    log_info("registered EVDI framebuffer id=%d", device->framebuffer.evdi_buffer.id);
+    evdi_device_request_update(device);
+}
+
+static void handle_mode_changed(struct evdi_mode mode, void *user_data)
+{
+    EvdiDevice *device = user_data;
+    device->mode = mode;
+    log_info("event: mode_changed %dx%d@%d bpp=%d format=0x%x",
+             mode.width,
+             mode.height,
+             mode.refresh_rate,
+             mode.bits_per_pixel,
+             mode.pixel_format);
+    register_capture_buffer(device, mode);
+}
+
+static void grab_pixels(EvdiDevice *device)
+{
+    if (!device->capture_enabled || !device->framebuffer.registered) {
+        return;
+    }
+
+    int rect_count = FRAMEBUFFER_RECT_CAPACITY;
+    device->framebuffer.evdi_buffer.rect_count = rect_count;
+    evdi_grab_pixels(device->handle, device->framebuffer.evdi_buffer.rects, &rect_count);
+    device->framebuffer.evdi_buffer.rect_count = rect_count;
+    device->update_in_flight = false;
+
+    framebuffer_log_rects(device->framebuffer.evdi_buffer.rects, rect_count);
+    if (device->dump_frame && !device->frame_dumped && rect_count > 0) {
+        device->frame_dumped = framebuffer_dump_raw(&device->framebuffer, device->dump_path);
+    }
+
+    evdi_device_request_update(device);
+}
+
+static void handle_update_ready(int buffer_to_be_updated, void *user_data)
+{
+    EvdiDevice *device = user_data;
+    log_info("event: update_ready buffer=%d", buffer_to_be_updated);
+
+    if (!device->framebuffer.registered ||
+        buffer_to_be_updated != device->framebuffer.evdi_buffer.id) {
+        log_warn("ignoring update for unexpected buffer id=%d", buffer_to_be_updated);
+        device->update_in_flight = false;
+        return;
+    }
+
+    grab_pixels(device);
+}
+
+bool evdi_device_open(EvdiDevice *device, int requested_device)
+{
+    memset(device, 0, sizeof(*device));
+    device->device_index = -1;
+    device->capture_enabled = true;
+    device->dump_frame = true;
+    device->dump_path = "frame.raw";
+
+    int device_index = requested_device >= 0 ? requested_device : find_available_device();
+    if (device_index < 0) {
+        return false;
+    }
+
+    if (requested_device >= 0) {
+        enum evdi_device_status status = evdi_check_device(device_index);
+        log_info("requested card%d status: %s", device_index, device_status_name(status));
+        if (status != AVAILABLE) {
+            log_error("/dev/dri/card%d is not an available EVDI device", device_index);
+            return false;
+        }
+    }
+
+    device->handle = evdi_open(device_index);
+    if (device->handle == EVDI_INVALID_HANDLE) {
+        log_error("failed to open /dev/dri/card%d as EVDI", device_index);
+        return false;
+    }
+
+    device->device_index = device_index;
+
+    memset(&device->event_context, 0, sizeof(device->event_context));
+    device->event_context.dpms_handler = handle_dpms;
+    device->event_context.mode_changed_handler = handle_mode_changed;
+    device->event_context.update_ready_handler = handle_update_ready;
+    device->event_context.crtc_state_handler = handle_crtc_state;
+    device->event_context.cursor_set_handler = handle_cursor_set;
+    device->event_context.cursor_move_handler = handle_cursor_move;
+    device->event_context.ddcci_data_handler = handle_ddcci_data;
+    device->event_context.user_data = device;
+
+    evdi_enable_cursor_events(device->handle, true);
+    log_info("opened EVDI device /dev/dri/card%d", device->device_index);
+    return true;
+}
+
+void evdi_device_connect(EvdiDevice *device)
+{
+    const uint32_t pixel_area_limit = 1920U * 1080U;
+    const uint32_t pixel_per_second_limit = pixel_area_limit * 60U;
+
+    log_info("connecting fake monitor EDID 1920x1080@60 limit area=%u pps=%u",
+             pixel_area_limit,
+             pixel_per_second_limit);
+    evdi_connect2(device->handle,
+                  k_loom_display_edid,
+                  sizeof(k_loom_display_edid),
+                  pixel_area_limit,
+                  pixel_per_second_limit);
+    device->connected = true;
+}
+
+void evdi_device_close(EvdiDevice *device)
+{
+    if (!device->handle) {
+        return;
+    }
+
+    if (device->framebuffer.registered) {
+        log_info("unregistering framebuffer id=%d", device->framebuffer.evdi_buffer.id);
+        evdi_unregister_buffer(device->handle, device->framebuffer.evdi_buffer.id);
+        device->framebuffer.registered = false;
+    }
+    framebuffer_destroy(&device->framebuffer);
+
+    if (device->connected) {
+        log_info("disconnecting EVDI monitor");
+        evdi_disconnect(device->handle);
+        device->connected = false;
+    }
+
+    log_info("closing EVDI device /dev/dri/card%d", device->device_index);
+    evdi_close(device->handle);
+    device->handle = NULL;
+}
+
+void evdi_device_request_update(EvdiDevice *device)
+{
+    if (!device->capture_enabled || !device->framebuffer.registered || device->update_in_flight) {
+        return;
+    }
+
+    device->update_in_flight = true;
+    bool ready_now = evdi_request_update(device->handle, device->framebuffer.evdi_buffer.id);
+    log_debug("requested update buffer=%d ready_now=%s",
+              device->framebuffer.evdi_buffer.id,
+              ready_now ? "true" : "false");
+    if (ready_now) {
+        grab_pixels(device);
+    }
+}
+
+int evdi_device_event_fd(const EvdiDevice *device)
+{
+    return evdi_get_event_ready(device->handle);
+}
+
+void evdi_device_handle_events(EvdiDevice *device)
+{
+    evdi_handle_events(device->handle, &device->event_context);
+}
