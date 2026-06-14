@@ -33,6 +33,20 @@ GNOME / Wayland
   -> Android MediaCodec fullscreen client
 ```
 
+Current USB streaming prototype:
+
+```text
+loomd EVDI CPU framebuffer
+  -> GStreamer vah264enc on AMD VAAPI
+  -> H.264 byte-stream TCP socket
+  -> ADB forward over USB
+  -> Android ServerSocket
+  -> Android MediaCodec decoder
+  -> SurfaceView
+```
+
+The current capture boundary is still CPU-backed because libevdi fills a userspace framebuffer. Encoding is hardware-backed through AMD VAAPI (`vah264enc`); a later zero-copy path needs a different capture/DMABUF design.
+
 ## Clone
 
 ```bash
@@ -89,6 +103,43 @@ sudo ./build/loomd --device 0
 sudo ./build/loomd --no-capture
 sudo ./build/loomd --dump-frame frame.raw
 ```
+
+## Android USB Stream
+
+Build and install the Android app:
+
+```bash
+cd android
+./gradlew :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n com.jainhardik120.loom/.MainActivity
+cd ..
+```
+
+Forward the host TCP port to the app's tablet-side listener over USB:
+
+```bash
+adb forward tcp:27183 tcp:27183
+```
+
+Enable streaming on a running `loomd`:
+
+```bash
+./build/loomctl set stream_host 127.0.0.1
+./build/loomctl set stream_port 27183
+./build/loomctl set stream_bitrate_kbps 8000
+./build/loomctl set stream_fps 30
+./build/loomctl set stream_enabled true
+```
+
+For settings that should persist across daemon restarts:
+
+```bash
+./build/loomctl settings set stream_enabled true
+./build/loomctl settings set stream_port 27183
+```
+
+The Android app listens on port `27183` and decodes H.264 using `MediaCodec`.
 
 ## Settings and Control
 

@@ -105,6 +105,13 @@ int main(int argc, char **argv)
     device.mode_refresh = settings.mode_refresh;
     device.pixel_area_limit = settings.pixel_area_limit;
     device.pixel_per_second_limit = settings.pixel_per_second_limit;
+    StreamConfig stream_config;
+    stream_config.enabled = settings.stream_enabled;
+    snprintf(stream_config.host, sizeof(stream_config.host), "%s", settings.stream_host);
+    stream_config.port = settings.stream_port;
+    stream_config.bitrate_kbps = settings.stream_bitrate_kbps;
+    stream_config.fps = settings.stream_fps;
+    stream_encoder_configure(&device.stream_encoder, &stream_config);
 
     evdi_device_connect(&device);
 

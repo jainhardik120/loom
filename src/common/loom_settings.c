@@ -107,6 +107,11 @@ void loom_settings_defaults(LoomSettings *settings)
     settings->mode_refresh = 60;
     settings->pixel_area_limit = (uint32_t)(settings->mode_width * settings->mode_height);
     settings->pixel_per_second_limit = settings->pixel_area_limit * (uint32_t)settings->mode_refresh;
+    settings->stream_enabled = false;
+    snprintf(settings->stream_host, sizeof(settings->stream_host), "127.0.0.1");
+    settings->stream_port = 27183;
+    settings->stream_bitrate_kbps = 8000;
+    settings->stream_fps = 30;
 }
 
 bool loom_settings_set_value(LoomSettings *settings, const char *key, const char *value)
@@ -179,6 +184,38 @@ bool loom_settings_set_value(LoomSettings *settings, const char *key, const char
         settings->pixel_per_second_limit = (uint32_t)parsed_int;
         return true;
     }
+    if (strcmp(key, "stream_enabled") == 0 || strcmp(key, "stream") == 0) {
+        if (!parse_bool(value, &parsed_bool)) {
+            return false;
+        }
+        settings->stream_enabled = parsed_bool;
+        return true;
+    }
+    if (strcmp(key, "stream_host") == 0) {
+        snprintf(settings->stream_host, sizeof(settings->stream_host), "%s", value);
+        return true;
+    }
+    if (strcmp(key, "stream_port") == 0) {
+        if (!parse_int(value, &parsed_int)) {
+            return false;
+        }
+        settings->stream_port = parsed_int;
+        return true;
+    }
+    if (strcmp(key, "stream_bitrate_kbps") == 0) {
+        if (!parse_int(value, &parsed_int)) {
+            return false;
+        }
+        settings->stream_bitrate_kbps = parsed_int;
+        return true;
+    }
+    if (strcmp(key, "stream_fps") == 0) {
+        if (!parse_int(value, &parsed_int)) {
+            return false;
+        }
+        settings->stream_fps = parsed_int;
+        return true;
+    }
 
     return false;
 }
@@ -206,6 +243,16 @@ bool loom_settings_get_value(const LoomSettings *settings,
         snprintf(buffer, buffer_size, "%u", settings->pixel_area_limit);
     } else if (strcmp(key, "pixel_per_second_limit") == 0) {
         snprintf(buffer, buffer_size, "%u", settings->pixel_per_second_limit);
+    } else if (strcmp(key, "stream_enabled") == 0 || strcmp(key, "stream") == 0) {
+        snprintf(buffer, buffer_size, "%s", settings->stream_enabled ? "true" : "false");
+    } else if (strcmp(key, "stream_host") == 0) {
+        snprintf(buffer, buffer_size, "%s", settings->stream_host);
+    } else if (strcmp(key, "stream_port") == 0) {
+        snprintf(buffer, buffer_size, "%d", settings->stream_port);
+    } else if (strcmp(key, "stream_bitrate_kbps") == 0) {
+        snprintf(buffer, buffer_size, "%d", settings->stream_bitrate_kbps);
+    } else if (strcmp(key, "stream_fps") == 0) {
+        snprintf(buffer, buffer_size, "%d", settings->stream_fps);
     } else {
         return false;
     }
@@ -267,6 +314,11 @@ bool loom_settings_save(const LoomSettings *settings, const char *path)
     fprintf(file, "mode_refresh=%d\n", settings->mode_refresh);
     fprintf(file, "pixel_area_limit=%u\n", settings->pixel_area_limit);
     fprintf(file, "pixel_per_second_limit=%u\n", settings->pixel_per_second_limit);
+    fprintf(file, "stream_enabled=%s\n", settings->stream_enabled ? "true" : "false");
+    fprintf(file, "stream_host=%s\n", settings->stream_host);
+    fprintf(file, "stream_port=%d\n", settings->stream_port);
+    fprintf(file, "stream_bitrate_kbps=%d\n", settings->stream_bitrate_kbps);
+    fprintf(file, "stream_fps=%d\n", settings->stream_fps);
 
     if (fclose(file) != 0) {
         log_error("failed to close %s: %s", path, strerror(errno));
@@ -286,6 +338,11 @@ void loom_settings_print(const LoomSettings *settings)
     printf("mode_refresh=%d\n", settings->mode_refresh);
     printf("pixel_area_limit=%u\n", settings->pixel_area_limit);
     printf("pixel_per_second_limit=%u\n", settings->pixel_per_second_limit);
+    printf("stream_enabled=%s\n", settings->stream_enabled ? "true" : "false");
+    printf("stream_host=%s\n", settings->stream_host);
+    printf("stream_port=%d\n", settings->stream_port);
+    printf("stream_bitrate_kbps=%d\n", settings->stream_bitrate_kbps);
+    printf("stream_fps=%d\n", settings->stream_fps);
 }
 
 const char *loom_settings_default_user_path(char *buffer, size_t buffer_size)
@@ -298,4 +355,3 @@ const char *loom_settings_default_user_path(char *buffer, size_t buffer_size)
     snprintf(buffer, buffer_size, "%s/%s", home, LOOM_DEFAULT_CONFIG_RELATIVE_PATH);
     return buffer;
 }
-

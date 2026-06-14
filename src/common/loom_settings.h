@@ -15,6 +15,11 @@ typedef struct LoomSettings {
     int mode_refresh;
     uint32_t pixel_area_limit;
     uint32_t pixel_per_second_limit;
+    bool stream_enabled;
+    char stream_host[128];
+    int stream_port;
+    int stream_bitrate_kbps;
+    int stream_fps;
 } LoomSettings;
 
 void loom_settings_defaults(LoomSettings *settings);
@@ -29,4 +34,3 @@ void loom_settings_print(const LoomSettings *settings);
 const char *loom_settings_default_user_path(char *buffer, size_t buffer_size);
 
 #endif
-

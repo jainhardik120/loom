@@ -14,15 +14,18 @@ static int method_status(sd_bus_message *message, void *userdata, sd_bus_error *
 {
     (void)ret_error;
     LoomControlService *service = userdata;
-    char status[512];
+    char status[640];
 
     snprintf(status,
              sizeof(status),
-             "loomd running; evdi_card=%d; connected=%s; capture=%s; dump_frame=%s; mode_limit=%dx%d@%d",
+             "loomd running; evdi_card=%d; connected=%s; capture=%s; dump_frame=%s; stream=%s; stream_target=%s:%d; mode_limit=%dx%d@%d",
              service->device ? service->device->device_index : -1,
              service->device && service->device->connected ? "true" : "false",
              service->settings && service->settings->capture_enabled ? "true" : "false",
              service->settings && service->settings->dump_frame ? "true" : "false",
+             service->settings && service->settings->stream_enabled ? "true" : "false",
+             service->settings ? service->settings->stream_host : "",
+             service->settings ? service->settings->stream_port : 0,
              service->settings ? service->settings->mode_width : 0,
              service->settings ? service->settings->mode_height : 0,
              service->settings ? service->settings->mode_refresh : 0);
@@ -74,6 +77,21 @@ static int method_set_setting(sd_bus_message *message, void *userdata, sd_bus_er
         service->device->capture_enabled = service->settings->capture_enabled;
         service->device->dump_frame = service->settings->dump_frame;
         service->device->dump_path = service->settings->dump_path;
+        StreamConfig stream_config;
+        stream_config.enabled = service->settings->stream_enabled;
+        snprintf(stream_config.host, sizeof(stream_config.host), "%s", service->settings->stream_host);
+        stream_config.port = service->settings->stream_port;
+        stream_config.bitrate_kbps = service->settings->stream_bitrate_kbps;
+        stream_config.fps = service->settings->stream_fps;
+        stream_encoder_configure(&service->device->stream_encoder, &stream_config);
+        if (!stream_config.enabled) {
+            stream_encoder_stop(&service->device->stream_encoder);
+        } else if (service->device->framebuffer.registered) {
+            stream_encoder_start(&service->device->stream_encoder,
+                                 service->device->framebuffer.evdi_buffer.width,
+                                 service->device->framebuffer.evdi_buffer.height,
+                                 service->device->framebuffer.evdi_buffer.stride);
+        }
     }
 
     log_info("D-Bus setting changed: %s=%s", key, value);

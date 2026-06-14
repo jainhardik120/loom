@@ -113,6 +113,7 @@ static void register_capture_buffer(EvdiDevice *device, struct evdi_mode mode)
         evdi_unregister_buffer(device->handle, device->framebuffer.evdi_buffer.id);
         device->framebuffer.registered = false;
     }
+    stream_encoder_stop(&device->stream_encoder);
     framebuffer_destroy(&device->framebuffer);
     device->update_in_flight = false;
 
@@ -125,6 +126,10 @@ static void register_capture_buffer(EvdiDevice *device, struct evdi_mode mode)
     evdi_register_buffer(device->handle, device->framebuffer.evdi_buffer);
     device->framebuffer.registered = true;
     log_info("registered EVDI framebuffer id=%d", device->framebuffer.evdi_buffer.id);
+    stream_encoder_start(&device->stream_encoder,
+                         device->framebuffer.evdi_buffer.width,
+                         device->framebuffer.evdi_buffer.height,
+                         device->framebuffer.evdi_buffer.stride);
     evdi_device_request_update(device);
 }
 
@@ -157,6 +162,11 @@ static void grab_pixels(EvdiDevice *device)
     if (device->dump_frame && !device->frame_dumped && rect_count > 0) {
         device->frame_dumped = framebuffer_dump_raw(&device->framebuffer, device->dump_path);
     }
+    if (rect_count > 0) {
+        stream_encoder_write_frame(&device->stream_encoder,
+                                   device->framebuffer.evdi_buffer.buffer,
+                                   device->framebuffer.size_bytes);
+    }
 
     evdi_device_request_update(device);
 }
@@ -188,6 +198,7 @@ bool evdi_device_open(EvdiDevice *device, int requested_device)
     device->mode_refresh = 60;
     device->pixel_area_limit = 1920U * 1080U;
     device->pixel_per_second_limit = device->pixel_area_limit * 60U;
+    stream_encoder_init(&device->stream_encoder);
 
     int device_index = requested_device >= 0 ? requested_device : find_available_device();
     if (device_index < 0) {
@@ -221,7 +232,7 @@ bool evdi_device_open(EvdiDevice *device, int requested_device)
     device->event_context.ddcci_data_handler = handle_ddcci_data;
     device->event_context.user_data = device;
 
-    evdi_enable_cursor_events(device->handle, true);
+    evdi_enable_cursor_events(device->handle, false);
     log_info("opened EVDI device /dev/dri/card%d", device->device_index);
     return true;
 }

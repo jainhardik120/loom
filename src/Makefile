@@ -24,6 +24,7 @@ LOOMD_SRCS := \
 	loomd/evdi_logging.c \
 	loomd/framebuffer.c \
 	loomd/event_loop.c \
+	loomd/stream.c \
 	$(COMMON_SRCS)
 
 LOOMCTL_SRCS := \

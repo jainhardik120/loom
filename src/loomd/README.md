@@ -29,6 +29,14 @@ Later modules can be added behind the same daemon boundary:
 EvdiDevice -> Framebuffer -> Encoder(VAAPI/AMD render node) -> Transport(ADB/USB)
 ```
 
+Current streaming prototype uses GStreamer:
+
+```text
+Framebuffer -> gst-launch-1.0 fdsrc -> rawvideoparse -> videoconvert -> vah264enc -> tcpclientsink
+```
+
+`vah264enc` is the GStreamer VAAPI H.264 encoder. On the current laptop it resolves to AMD Radeon Graphics on `/dev/dri/renderD129`.
+
 ## Build
 
 From the monorepo root:
@@ -93,6 +101,18 @@ interface: org.loom.Display1
 ```
 
 `loomctl status`, `loomctl get KEY`, and `loomctl set KEY VALUE` call that live service. Runtime setting changes currently update the daemon's in-memory settings; only capture and frame-dump settings are applied immediately to the active EVDI loop.
+
+Streaming settings:
+
+```text
+stream_enabled=true|false
+stream_host=127.0.0.1
+stream_port=27183
+stream_bitrate_kbps=8000
+stream_fps=30
+```
+
+When `stream_enabled` becomes true and a framebuffer is already registered, `loomd` starts the GStreamer encoder immediately.
 
 Stop with Ctrl+C. Shutdown unregisters the framebuffer, disconnects EVDI, frees memory, and closes the handle.
 

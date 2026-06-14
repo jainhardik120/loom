@@ -6,6 +6,7 @@
 
 #include "evdi_lib.h"
 #include "framebuffer.h"
+#include "stream.h"
 
 typedef struct EvdiDevice {
     int device_index;
@@ -24,6 +25,7 @@ typedef struct EvdiDevice {
     int mode_refresh;
     uint32_t pixel_area_limit;
     uint32_t pixel_per_second_limit;
+    StreamEncoder stream_encoder;
 } EvdiDevice;
 
 bool evdi_device_open(EvdiDevice *device, int requested_device);
