@@ -11,7 +11,7 @@ LOOMD_CPPFLAGS := $(COMMON_CPPFLAGS) -Iloomd -I$(EVDI_DIR)/library
 LOOMD_LDFLAGS := -L$(EVDI_DIR)/library -Wl,-rpath,'$$ORIGIN/../third_party/evdi/library'
 SYSTEMD_LDLIBS := $(shell pkg-config --libs libsystemd)
 
-LOOMD_LDLIBS := -levdi $(SYSTEMD_LDLIBS)
+LOOMD_LDLIBS := -levdi $(SYSTEMD_LDLIBS) -pthread
 
 COMMON_SRCS := \
 	common/logging.c \

@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <pthread.h>
 #include <sys/types.h>
 
 typedef struct StreamConfig {
@@ -21,6 +22,14 @@ typedef struct StreamEncoder {
     int height;
     int stride;
     bool running;
+    bool pump_running;
+    bool pump_stop;
+    bool has_frame;
+    unsigned char *latest_frame;
+    size_t frame_size;
+    pthread_t pump_thread;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
 } StreamEncoder;
 
 void stream_encoder_init(StreamEncoder *encoder);
@@ -30,4 +39,3 @@ void stream_encoder_stop(StreamEncoder *encoder);
 void stream_encoder_write_frame(StreamEncoder *encoder, const void *data, size_t size);
 
 #endif
-

@@ -2,6 +2,7 @@ package com.jainhardik120.loom.stream
 
 import android.media.MediaCodec
 import android.media.MediaFormat
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import java.io.BufferedInputStream
@@ -12,13 +13,14 @@ import kotlin.concurrent.thread
 
 class H264StreamDecoder(
     private val port: Int,
-    private val onStatus: (String) -> Unit
+    private val onStats: (StreamStats) -> Unit
 ) {
     private val tag = "LoomDecoder"
     private val running = AtomicBoolean(false)
     private var worker: Thread? = null
     private var serverSocket: ServerSocket? = null
     private var clientSocket: Socket? = null
+    private var stats = StreamStats(port = port)
 
     fun start(surface: Surface) {
         if (!running.compareAndSet(false, true)) {
@@ -50,18 +52,19 @@ class H264StreamDecoder(
     private fun runDecoder(surface: Surface) {
         var codec: MediaCodec? = null
         try {
-            onStatus("Listening on 127.0.0.1:$port")
+            publishStats(stats.copy(status = "Listening on 127.0.0.1:$port"))
             Log.i(tag, "listening on port $port")
             serverSocket = ServerSocket(port)
             while (running.get()) {
                 clientSocket = serverSocket?.accept()
                 val socket = clientSocket ?: continue
                 socket.tcpNoDelay = true
-                onStatus("Stream connected")
+                publishStats(stats.copy(status = "Stream connected"))
                 Log.i(tag, "stream connected from ${socket.remoteSocketAddress}")
 
                 codec = MediaCodec.createDecoderByType("video/avc")
                 val format = MediaFormat.createVideoFormat("video/avc", 1920, 1080)
+                publishStats(stats.copy(width = 1920, height = 1080))
                 codec.configure(format, surface, null, 0)
                 codec.start()
 
@@ -70,12 +73,18 @@ class H264StreamDecoder(
                 codec.stop()
                 codec.release()
                 codec = null
-                onStatus("Stream disconnected")
+                publishStats(
+                    stats.copy(
+                        status = "Stream disconnected",
+                        fps = 0.0,
+                        bitrateKbps = 0.0
+                    )
+                )
                 Log.i(tag, "stream disconnected")
             }
         } catch (error: Exception) {
             if (running.get()) {
-                onStatus("Decoder error: ${error.message}")
+                publishStats(stats.copy(status = "Decoder error: ${error.message}"))
                 Log.e(tag, "decoder error", error)
             }
         } finally {
@@ -97,12 +106,20 @@ class H264StreamDecoder(
         val bufferInfo = MediaCodec.BufferInfo()
         val readBuffer = ByteArray(64 * 1024)
         var presentationTimeUs = 0L
+        var bytesInWindow = 0L
+        var renderedInWindow = 0L
+        var smoothedFps = stats.fps
+        var queuedSamples = stats.queuedSamples
+        var renderedFrames = stats.renderedFrames
+        var droppedNals = stats.droppedNals
+        var windowStartedAt = SystemClock.elapsedRealtime()
 
         while (running.get() && !socket.isClosed) {
             val read = input.read(readBuffer)
             if (read < 0) break
             if (read == 0) continue
 
+            bytesInWindow += read.toLong()
             parser.append(readBuffer, read)
             while (true) {
                 val nal = parser.nextNal() ?: break
@@ -120,31 +137,97 @@ class H264StreamDecoder(
                             nalFlags(nal)
                         )
                         presentationTimeUs += 33_333
+                        queuedSamples += 1
+                    } else {
+                        droppedNals += 1
                     }
                 }
 
-                drainOutput(codec, bufferInfo)
+                val drainResult = drainOutput(codec, bufferInfo)
+                renderedInWindow += drainResult.renderedFrames
+                renderedFrames += drainResult.renderedFrames
+                if (drainResult.width > 0 && drainResult.height > 0) {
+                    publishStats(stats.copy(width = drainResult.width, height = drainResult.height))
+                }
             }
-            drainOutput(codec, bufferInfo)
+            val drainResult = drainOutput(codec, bufferInfo)
+            renderedInWindow += drainResult.renderedFrames
+            renderedFrames += drainResult.renderedFrames
+            if (drainResult.width > 0 && drainResult.height > 0) {
+                publishStats(stats.copy(width = drainResult.width, height = drainResult.height))
+            }
+
+            val now = SystemClock.elapsedRealtime()
+            val elapsedMs = now - windowStartedAt
+            if (elapsedMs >= 1_000) {
+                val seconds = elapsedMs / 1_000.0
+                val measuredFps = renderedInWindow / seconds
+                smoothedFps = if (smoothedFps <= 0.0) {
+                    measuredFps
+                } else {
+                    (smoothedFps * 0.75) + (measuredFps * 0.25)
+                }
+                publishStats(
+                    stats.copy(
+                        status = "Stream connected",
+                        fps = smoothedFps,
+                        bitrateKbps = (bytesInWindow * 8.0) / elapsedMs,
+                        queuedSamples = queuedSamples,
+                        renderedFrames = renderedFrames,
+                        droppedNals = droppedNals
+                    )
+                )
+                bytesInWindow = 0L
+                renderedInWindow = 0L
+                windowStartedAt = now
+            }
         }
     }
 
-    private fun drainOutput(codec: MediaCodec, bufferInfo: MediaCodec.BufferInfo) {
+    private fun drainOutput(
+        codec: MediaCodec,
+        bufferInfo: MediaCodec.BufferInfo
+    ): DrainResult {
+        var renderedFrames = 0L
+        var width = 0
+        var height = 0
         while (true) {
             val outputIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
             if (outputIndex >= 0) {
-                codec.releaseOutputBuffer(outputIndex, bufferInfo.size > 0)
-            } else if (
-                outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER ||
-                outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED ||
+                val render = bufferInfo.size > 0
+                codec.releaseOutputBuffer(outputIndex, render)
+                if (render) {
+                    renderedFrames += 1
+                }
+            } else if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                val format = codec.outputFormat
+                width = getFormatInt(format, MediaFormat.KEY_WIDTH)
+                height = getFormatInt(format, MediaFormat.KEY_HEIGHT)
+                Log.i(tag, "decoder output format changed: $format")
+            } else if (outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER ||
                 outputIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED
             ) {
-                return
+                return DrainResult(renderedFrames, width, height)
             } else {
-                return
+                return DrainResult(renderedFrames, width, height)
             }
         }
     }
+
+    private fun getFormatInt(format: MediaFormat, key: String): Int {
+        return if (format.containsKey(key)) format.getInteger(key) else 0
+    }
+
+    private fun publishStats(next: StreamStats) {
+        stats = next
+        onStats(next)
+    }
+
+    private data class DrainResult(
+        val renderedFrames: Long,
+        val width: Int,
+        val height: Int
+    )
 
     private fun nalFlags(nal: ByteArray): Int {
         val offset = when {
