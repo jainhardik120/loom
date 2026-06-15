@@ -44,6 +44,7 @@ void stream_encoder_init(StreamEncoder *encoder)
     encoder->config.port = 27183;
     encoder->config.bitrate_kbps = 8000;
     encoder->config.fps = 30;
+    encoder->metrics.target_fps = encoder->config.fps;
 }
 
 void stream_encoder_configure(StreamEncoder *encoder, const StreamConfig *config)
@@ -229,6 +230,15 @@ bool stream_encoder_start(StreamEncoder *encoder, int width, int height, int str
     pthread_mutex_unlock(&encoder->mutex);
 
     encoder->running = true;
+    pthread_mutex_lock(&encoder->mutex);
+    memset(&encoder->metrics, 0, sizeof(encoder->metrics));
+    encoder->metrics.running = true;
+    encoder->metrics.encoder_pid = child;
+    encoder->metrics.width = width;
+    encoder->metrics.height = height;
+    encoder->metrics.stride = stride;
+    encoder->metrics.target_fps = encoder->config.fps;
+    pthread_mutex_unlock(&encoder->mutex);
     if (pthread_create(&encoder->pump_thread, NULL, stream_pump_main, encoder) != 0) {
         log_error("failed to start stream frame pump");
         stream_encoder_stop(encoder);
@@ -276,6 +286,10 @@ void stream_encoder_stop(StreamEncoder *encoder)
     encoder->child_pid = -1;
     encoder->running = false;
     encoder->has_frame = false;
+    pthread_mutex_lock(&encoder->mutex);
+    encoder->metrics.running = false;
+    encoder->metrics.encoder_pid = -1;
+    pthread_mutex_unlock(&encoder->mutex);
     free(encoder->latest_frame);
     encoder->latest_frame = NULL;
     encoder->frame_size = 0;
@@ -292,6 +306,15 @@ void stream_encoder_write_frame(StreamEncoder *encoder, const void *data, size_t
     memcpy(encoder->latest_frame, data, size);
     encoder->has_frame = true;
     pthread_cond_signal(&encoder->cond);
+    pthread_mutex_unlock(&encoder->mutex);
+}
+
+void stream_encoder_get_metrics(StreamEncoder *encoder, StreamMetrics *metrics)
+{
+    pthread_mutex_lock(&encoder->mutex);
+    *metrics = encoder->metrics;
+    metrics->running = encoder->running;
+    metrics->encoder_pid = encoder->child_pid;
     pthread_mutex_unlock(&encoder->mutex);
 }
 
@@ -399,6 +422,13 @@ static void *stream_pump_main(void *user_data)
                      avg_write_ms,
                      (double)max_write_us / 1000.0,
                      slow_writes_in_window);
+            pthread_mutex_lock(&encoder->mutex);
+            encoder->metrics.raw_fps = frames_per_sec;
+            encoder->metrics.avg_raw_write_ms = avg_write_ms;
+            encoder->metrics.max_raw_write_ms = (double)max_write_us / 1000.0;
+            encoder->metrics.slow_raw_writes = slow_writes_in_window;
+            encoder->metrics.raw_frames_total += (unsigned long long)frames_in_window;
+            pthread_mutex_unlock(&encoder->mutex);
             frames_in_window = 0;
             write_us_in_window = 0;
             max_write_us = 0;
@@ -484,6 +514,16 @@ static void *encoded_output_main(void *user_data)
                      avg_usb_write_ms,
                      (double)max_usb_write_us / 1000.0,
                      usb_writes_in_window);
+            pthread_mutex_lock(&encoder->mutex);
+            encoder->metrics.encoded_kbps = kbps;
+            encoder->metrics.encoded_au_fps = au_per_sec;
+            encoder->metrics.usb_mbps = usb_mbps;
+            encoder->metrics.avg_usb_write_ms = avg_usb_write_ms;
+            encoder->metrics.max_usb_write_ms = (double)max_usb_write_us / 1000.0;
+            encoder->metrics.usb_writes = usb_writes_in_window;
+            encoder->metrics.encoded_bytes_total += (unsigned long long)bytes_in_window;
+            encoder->metrics.usb_bytes_total += (unsigned long long)usb_bytes_in_window;
+            pthread_mutex_unlock(&encoder->mutex);
             bytes_in_window = 0;
             usb_bytes_in_window = 0;
             access_units_in_window = 0;
@@ -537,7 +577,7 @@ static int count_h264_aud_nals(const unsigned char *tail,
             } else if (i + 3 < size && scan[i + 2] == 0 && scan[i + 3] == 1) {
                 nal_offset = i + 4;
             }
-            if (nal_offset > 0 && nal_offset < size && (scan[nal_offset] & 0x1f) == 9) {
+            if (nal_offset >= tail_size && nal_offset < size && (scan[nal_offset] & 0x1f) == 9) {
                 count++;
             }
         }

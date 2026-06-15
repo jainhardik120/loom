@@ -18,6 +18,7 @@ int loom_control_pause_display(const char *id);
 int loom_control_resume_display(const char *id);
 int loom_control_set_display_setting(const char *id, const char *key, const char *value);
 int loom_control_list_usb_devices_text(char *buffer, size_t buffer_size);
+int loom_control_metrics_text(char *buffer, size_t buffer_size);
 
 int loom_control_status(void);
 int loom_control_get_setting(const char *key);

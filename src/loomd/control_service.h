@@ -3,6 +3,7 @@
 
 #include "display_manager.h"
 #include "loom_settings.h"
+#include "metrics.h"
 
 #include <stdbool.h>
 #include <systemd/sd-bus.h>
@@ -13,6 +14,8 @@ typedef struct LoomControlService {
     sd_bus_slot *name_slot;
     LoomSettings *settings;
     LoomDisplayManager *display_manager;
+    HostMetricsSampler metrics_sampler;
+    ProcessMetricsSampler process_samplers[LOOM_PROCESS_METRICS_MAX];
     char config_path[512];
     bool available;
 } LoomControlService;

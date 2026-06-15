@@ -5,7 +5,9 @@
 #include "usb_accessory.h"
 
 #include <errno.h>
+#include <stdarg.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -83,6 +85,169 @@ static int method_list_usb_devices(sd_bus_message *message, void *userdata, sd_b
     if (!usb_accessory_list_identities_text(output, sizeof(output))) {
         snprintf(output, sizeof(output), "usb_device_count=0\n");
     }
+    return sd_bus_reply_method_return(message, "s", output);
+}
+
+static size_t appendf(char *buffer, size_t buffer_size, size_t used, const char *format, ...)
+{
+    if (used >= buffer_size) {
+        return used;
+    }
+
+    va_list args;
+    va_start(args, format);
+    int written = vsnprintf(buffer + used, buffer_size - used, format, args);
+    va_end(args);
+    if (written < 0) {
+        return used;
+    }
+
+    size_t next = used + (size_t)written;
+    return next >= buffer_size ? buffer_size - 1 : next;
+}
+
+static ProcessMetricsSampler *process_sampler_for_pid(LoomControlService *service, pid_t pid)
+{
+    for (size_t i = 0; i < LOOM_PROCESS_METRICS_MAX; i++) {
+        if (service->process_samplers[i].pid == pid) {
+            return &service->process_samplers[i];
+        }
+    }
+
+    for (size_t i = 0; i < LOOM_PROCESS_METRICS_MAX; i++) {
+        if (service->process_samplers[i].pid == 0) {
+            process_metrics_sampler_init(&service->process_samplers[i]);
+            service->process_samplers[i].pid = pid;
+            return &service->process_samplers[i];
+        }
+    }
+
+    size_t slot = (size_t)pid % LOOM_PROCESS_METRICS_MAX;
+    process_metrics_sampler_init(&service->process_samplers[slot]);
+    service->process_samplers[slot].pid = pid;
+    return &service->process_samplers[slot];
+}
+
+static void process_role_for_pid(LoomControlService *service,
+                                 pid_t pid,
+                                 char *role,
+                                 size_t role_size,
+                                 char *display,
+                                 size_t display_size)
+{
+    snprintf(role, role_size, "%s", pid == getpid() ? "loomd" : "loom-child");
+    snprintf(display, display_size, "-");
+
+    if (!service->display_manager || pid == getpid()) {
+        return;
+    }
+
+    for (size_t i = 0; i < service->display_manager->session_count; i++) {
+        LoomDisplaySession *session = &service->display_manager->sessions[i];
+        if (!session->evdi_open) {
+            continue;
+        }
+
+        StreamMetrics metrics;
+        memset(&metrics, 0, sizeof(metrics));
+        stream_encoder_get_metrics(&session->evdi.stream_encoder, &metrics);
+        if (metrics.encoder_pid > 0 && process_metrics_is_descendant(pid, metrics.encoder_pid)) {
+            snprintf(role, role_size, "%s", pid == metrics.encoder_pid ? "encoder-launcher" : "encoder");
+            snprintf(display, display_size, "%s", session->profile.id);
+            return;
+        }
+    }
+}
+
+static int method_metrics(sd_bus_message *message, void *userdata, sd_bus_error *ret_error)
+{
+    (void)ret_error;
+    LoomControlService *service = userdata;
+    char output[16384];
+    output[0] = '\0';
+
+    pid_t pids[LOOM_PROCESS_METRICS_MAX];
+    size_t process_count = 0;
+    process_metrics_collect_tree(getpid(), pids, &process_count, LOOM_PROCESS_METRICS_MAX);
+    size_t display_count = service->display_manager ? service->display_manager->session_count : 0;
+    size_t used = appendf(output, sizeof(output), 0, "process_count=%zu\n", process_count);
+
+    for (size_t i = 0; i < process_count; i++) {
+        char role[32];
+        char display[64];
+        process_role_for_pid(service, pids[i], role, sizeof(role), display, sizeof(display));
+        process_metrics_append_text(process_sampler_for_pid(service, pids[i]),
+                                    pids[i],
+                                    role,
+                                    display,
+                                    output,
+                                    sizeof(output));
+    }
+    used = strlen(output);
+
+    used = appendf(output, sizeof(output), used, "display_count=%zu\n", display_count);
+
+    if (service->display_manager) {
+        for (size_t i = 0; i < service->display_manager->session_count; i++) {
+            LoomDisplaySession *session = &service->display_manager->sessions[i];
+            StreamMetrics metrics;
+            memset(&metrics, 0, sizeof(metrics));
+            if (session->evdi_open) {
+                stream_encoder_get_metrics(&session->evdi.stream_encoder, &metrics);
+            }
+
+            int mode_width = session->evdi_open && session->evdi.mode.width > 0
+                                 ? session->evdi.mode.width
+                                 : session->profile.mode_width;
+            int mode_height = session->evdi_open && session->evdi.mode.height > 0
+                                  ? session->evdi.mode.height
+                                  : session->profile.mode_height;
+            int mode_refresh = session->evdi_open && session->evdi.mode.refresh_rate > 0
+                                   ? session->evdi.mode.refresh_rate
+                                   : session->profile.mode_refresh;
+
+            used = appendf(output,
+                           sizeof(output),
+                           used,
+                           "display id=%s name=\"%s\" state=%s enabled=%s paused=%s present=%s evdi_card=%d "
+                           "mode=%dx%d@%d stream_running=%s target_fps=%d raw_fps=%.1f "
+                           "encoded_kbps=%.1f encoded_au_fps=%.1f usb_mbps=%.2f "
+                           "avg_raw_write_ms=%.3f max_raw_write_ms=%.3f slow_raw_writes=%d "
+                           "avg_usb_write_ms=%.3f max_usb_write_ms=%.3f usb_writes=%d "
+                           "raw_frames_total=%llu encoded_bytes_total=%llu usb_bytes_total=%llu\n",
+                           session->profile.id,
+                           session->profile.name,
+                           display_session_state_name(session->state),
+                           session->profile.enabled ? "true" : "false",
+                           session->profile.paused ? "true" : "false",
+                           session->device_present ? "true" : "false",
+                           session->evdi_open ? session->evdi.device_index : -1,
+                           mode_width,
+                           mode_height,
+                           mode_refresh,
+                           metrics.running ? "true" : "false",
+                           metrics.target_fps,
+                           metrics.raw_fps,
+                           metrics.encoded_kbps,
+                           metrics.encoded_au_fps,
+                           metrics.usb_mbps,
+                           metrics.avg_raw_write_ms,
+                           metrics.max_raw_write_ms,
+                           metrics.slow_raw_writes,
+                           metrics.avg_usb_write_ms,
+                           metrics.max_usb_write_ms,
+                           metrics.usb_writes,
+                           metrics.raw_frames_total,
+                           metrics.encoded_bytes_total,
+                           metrics.usb_bytes_total);
+        }
+    }
+
+    used = appendf(output,
+                   sizeof(output),
+                   used,
+                   "android_metrics available=false reason=client_telemetry_not_implemented\n");
+
     return sd_bus_reply_method_return(message, "s", output);
 }
 
@@ -268,6 +433,7 @@ static const sd_bus_vtable k_control_vtable[] = {
     SD_BUS_METHOD("SetSetting", "ss", "b", method_set_setting, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("ListDisplays", "", "s", method_list_displays, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("ListUsbDevices", "", "s", method_list_usb_devices, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("Metrics", "", "s", method_metrics, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("AddDisplay", "sssiii", "b", method_add_display, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("RemoveDisplay", "s", "b", method_remove_display, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("PauseDisplay", "s", "b", method_pause_display, SD_BUS_VTABLE_UNPRIVILEGED),
@@ -380,6 +546,10 @@ bool control_service_start(LoomControlService *service,
     memset(service, 0, sizeof(*service));
     service->settings = settings;
     service->display_manager = display_manager;
+    host_metrics_sampler_init(&service->metrics_sampler);
+    for (size_t i = 0; i < LOOM_PROCESS_METRICS_MAX; i++) {
+        process_metrics_sampler_init(&service->process_samplers[i]);
+    }
     if (config_path) {
         snprintf(service->config_path, sizeof(service->config_path), "%s", config_path);
     }

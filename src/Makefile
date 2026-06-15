@@ -35,6 +35,7 @@ LOOMD_SRCS := \
 	loomd/evdi_logging.c \
 	loomd/framebuffer.c \
 	loomd/event_loop.c \
+	loomd/metrics.c \
 	loomd/stream.c \
 	loomd/usb_accessory.c \
 	$(COMMON_SRCS)

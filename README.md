@@ -132,6 +132,23 @@ explicitly through `loomctl`:
 ./build/loomctl display remove lenovo-tab
 ```
 
+View live resource and stream metrics:
+
+```bash
+./build/loomctl metrics
+./build/loomctl metrics --watch
+./build/loomctl metrics --watch lenovo-tab
+./build/loomctl metrics --raw
+```
+
+The metrics view currently walks the `loomd` process tree and includes
+Loom-owned process CPU/RSS for the daemon, encoder launchers, encoder children,
+and future helper processes. It also reports per-process DRM GPU engine usage
+when exposed through Linux fdinfo, per-display stream FPS, encoded H.264
+bitrate, USB accessory throughput, and write latency. Android client telemetry
+is reported as unavailable until the app sends stats back to `loomd` over the
+accessory control channel.
+
 ## Run
 
 Load EVDI first if needed:
@@ -216,6 +233,13 @@ The Android app prefers an attached Loom USB accessory stream and falls back to 
 ./build/loomctl settings get capture_enabled
 ./build/loomctl settings set capture_enabled false
 ./build/loomctl settings path
+```
+
+Runtime metrics are available through the live D-Bus control path:
+
+```bash
+./build/loomctl metrics
+./build/loomctl metrics --watch
 ```
 
 By default, settings are stored at:
