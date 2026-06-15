@@ -53,6 +53,7 @@ static void apply_profile_to_evdi(LoomDisplaySession *session)
     stream_config.enabled = true;
     snprintf(stream_config.transport, sizeof(stream_config.transport), "%s", profile->stream_transport);
     snprintf(stream_config.host, sizeof(stream_config.host), "%s", profile->stream_host);
+    snprintf(stream_config.usb_serial, sizeof(stream_config.usb_serial), "%s", profile->usb_serial);
     stream_config.port = profile->stream_port;
     stream_config.bitrate_kbps = profile->stream_bitrate_kbps;
     stream_config.fps = profile->stream_fps;
@@ -67,12 +68,12 @@ static bool session_requires_usb_accessory(const LoomDisplaySession *session)
 static bool session_required_device_present(const LoomDisplaySession *session)
 {
     if (session_requires_usb_accessory(session)) {
-        if (usb_accessory_device_present()) {
+        if (usb_accessory_device_present_for_serial(session->profile.usb_serial)) {
             return true;
         }
         const char *allow_switch = getenv("LOOM_USB_ACCESSORY_AUTO_SWITCH");
         if (allow_switch && strcmp(allow_switch, "1") == 0) {
-            return usb_accessory_switch_to_accessory();
+            return usb_accessory_switch_to_accessory_for_serial(session->profile.usb_serial);
         }
         return false;
     }

@@ -40,6 +40,7 @@ void stream_encoder_init(StreamEncoder *encoder)
     usb_accessory_init(&encoder->usb_accessory);
     snprintf(encoder->config.transport, sizeof(encoder->config.transport), "tcp");
     snprintf(encoder->config.host, sizeof(encoder->config.host), "127.0.0.1");
+    encoder->config.usb_serial[0] = '\0';
     encoder->config.port = 27183;
     encoder->config.bitrate_kbps = 8000;
     encoder->config.fps = 30;
@@ -116,7 +117,8 @@ bool stream_encoder_start(StreamEncoder *encoder, int width, int height, int str
         return false;
     }
 
-    if (use_usb_accessory(encoder) && !usb_accessory_start(&encoder->usb_accessory)) {
+    if (use_usb_accessory(encoder) &&
+        !usb_accessory_start_for_serial(&encoder->usb_accessory, encoder->config.usb_serial)) {
         close(input_pipe_fds[0]);
         close(input_pipe_fds[1]);
         if (output_pipe_fds[0] >= 0) {

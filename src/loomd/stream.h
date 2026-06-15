@@ -12,6 +12,7 @@ typedef struct StreamConfig {
     bool enabled;
     char transport[32];
     char host[128];
+    char usb_serial[128];
     int port;
     int bitrate_kbps;
     int fps;

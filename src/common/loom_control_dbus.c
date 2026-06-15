@@ -302,6 +302,44 @@ int loom_control_set_display_setting(const char *id, const char *key, const char
     return rc < 0 ? 1 : 0;
 }
 
+int loom_control_list_usb_devices_text(char *buffer, size_t buffer_size)
+{
+    sd_bus *bus = NULL;
+    sd_bus_error error = SD_BUS_ERROR_NULL;
+    sd_bus_message *reply = NULL;
+    const char *value = NULL;
+
+    int rc = open_user_bus(&bus);
+    if (rc < 0) {
+        return 1;
+    }
+    rc = sd_bus_call_method(bus,
+                            LOOM_DBUS_SERVICE,
+                            LOOM_DBUS_OBJECT_PATH,
+                            LOOM_DBUS_INTERFACE,
+                            "ListUsbDevices",
+                            &error,
+                            &reply,
+                            "");
+    if (rc < 0) {
+        fprintf(stderr, "D-Bus ListUsbDevices failed: %s\n", error.message ? error.message : strerror(-rc));
+        sd_bus_error_free(&error);
+        sd_bus_unref(bus);
+        return 1;
+    }
+    rc = sd_bus_message_read(reply, "s", &value);
+    if (rc < 0) {
+        fprintf(stderr, "failed to parse ListUsbDevices reply: %s\n", strerror(-rc));
+        sd_bus_message_unref(reply);
+        sd_bus_unref(bus);
+        return 1;
+    }
+    snprintf(buffer, buffer_size, "%s", value);
+    sd_bus_message_unref(reply);
+    sd_bus_unref(bus);
+    return 0;
+}
+
 int loom_control_status(void)
 {
     char status[1024];

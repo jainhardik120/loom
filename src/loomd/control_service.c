@@ -2,6 +2,7 @@
 
 #include "logging.h"
 #include "loom_protocol.h"
+#include "usb_accessory.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -71,6 +72,17 @@ static int method_list_displays(sd_bus_message *message, void *userdata, sd_bus_
                                  session->evdi_open ? session->evdi.device_index : -1);
     }
 
+    return sd_bus_reply_method_return(message, "s", output);
+}
+
+static int method_list_usb_devices(sd_bus_message *message, void *userdata, sd_bus_error *ret_error)
+{
+    (void)userdata;
+    (void)ret_error;
+    char output[4096];
+    if (!usb_accessory_list_identities_text(output, sizeof(output))) {
+        snprintf(output, sizeof(output), "usb_device_count=0\n");
+    }
     return sd_bus_reply_method_return(message, "s", output);
 }
 
@@ -255,6 +267,7 @@ static const sd_bus_vtable k_control_vtable[] = {
     SD_BUS_METHOD("GetSetting", "s", "s", method_get_setting, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("SetSetting", "ss", "b", method_set_setting, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("ListDisplays", "", "s", method_list_displays, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("ListUsbDevices", "", "s", method_list_usb_devices, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("AddDisplay", "sssiii", "b", method_add_display, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("RemoveDisplay", "s", "b", method_remove_display, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("PauseDisplay", "s", "b", method_pause_display, SD_BUS_VTABLE_UNPRIVILEGED),

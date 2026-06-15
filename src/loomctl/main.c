@@ -18,6 +18,7 @@ static void usage(const char *argv0)
     printf("  display pause ID               Temporarily disconnect a display\n");
     printf("  display resume ID              Reconnect a paused display\n");
     printf("  display set ID KEY VALUE       Set a display profile value\n");
+    printf("  usb list                       List USB identities visible to loomd\n");
     printf("  settings                       Print effective local settings file values\n");
     printf("  settings get KEY               Print one setting\n");
     printf("  settings set KEY VALUE         Update the local settings file\n");
@@ -127,6 +128,19 @@ int main(int argc, char **argv)
             }
             return rc;
         }
+    }
+
+    if (strcmp(argv[1], "usb") == 0) {
+        if (argc != 3 || strcmp(argv[2], "list") != 0) {
+            usage(argv[0]);
+            return 2;
+        }
+        char devices[4096];
+        int rc = loom_control_list_usb_devices_text(devices, sizeof(devices));
+        if (rc == 0) {
+            printf("%s", devices);
+        }
+        return rc;
     }
 
     if (strcmp(argv[1], "settings") == 0) {

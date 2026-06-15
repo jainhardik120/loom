@@ -12,6 +12,7 @@ Current commands:
 ./build/loomctl display pause ID
 ./build/loomctl display resume ID
 ./build/loomctl display set ID KEY VALUE
+./build/loomctl usb list
 ./build/loomctl settings
 ./build/loomctl settings get KEY
 ./build/loomctl settings set KEY VALUE
@@ -31,6 +32,8 @@ Live D-Bus commands expect `loomd` to be running on the same user session bus:
 ```bash
 ./build/loomctl status
 ./build/loomctl display add lenovo-tab "Lenovo Tab"
+./build/loomctl usb list
+./build/loomctl display set lenovo-tab usb_serial HA24LBMH
 ./build/loomctl display set lenovo-tab mode_refresh 60
 ./build/loomctl display pause lenovo-tab
 ./build/loomctl display resume lenovo-tab

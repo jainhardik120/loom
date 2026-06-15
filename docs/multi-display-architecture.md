@@ -101,6 +101,11 @@ When a paired device disappears, the owning display session disconnects EVDI and
 stops streaming. When it reappears, the session reconnects automatically if its
 profile is enabled and not paused.
 
+For Android Open Accessory, Loom uses the tablet's USB serial as the pairing key.
+When `loomd` switches a normal Android USB device into AOA mode, it sends that
+same serial as the AOA accessory serial string, so the device can still be
+matched after USB re-enumeration.
+
 ## D-Bus Direction
 
 Current D-Bus API:
@@ -121,6 +126,7 @@ PauseDisplay(s id) -> b
 ResumeDisplay(s id) -> b
 GetDisplay(s id) -> a{sv}
 SetDisplaySetting(s id, s key, s value) -> b
+ListUsbDevices() -> s
 InstallVirtualCard() -> b
 RemoveVirtualCard() -> b
 ```
