@@ -95,6 +95,24 @@ static bool ensure_parent_dir(const char *path)
     return true;
 }
 
+static void display_profile_defaults(LoomDisplayProfile *profile, const char *id)
+{
+    memset(profile, 0, sizeof(*profile));
+    snprintf(profile->id, sizeof(profile->id), "%s", id);
+    snprintf(profile->name, sizeof(profile->name), "%s", id);
+    profile->enabled = true;
+    profile->paused = false;
+    profile->auto_connect = true;
+    profile->mode_width = 1920;
+    profile->mode_height = 1200;
+    profile->mode_refresh = 30;
+    snprintf(profile->stream_transport, sizeof(profile->stream_transport), "usb_accessory");
+    snprintf(profile->stream_host, sizeof(profile->stream_host), "127.0.0.1");
+    profile->stream_port = 27183;
+    profile->stream_bitrate_kbps = 12000;
+    profile->stream_fps = 30;
+}
+
 void loom_settings_defaults(LoomSettings *settings)
 {
     memset(settings, 0, sizeof(*settings));
@@ -113,6 +131,140 @@ void loom_settings_defaults(LoomSettings *settings)
     settings->stream_port = 27183;
     settings->stream_bitrate_kbps = 8000;
     settings->stream_fps = 30;
+    settings->display_count = 0;
+}
+
+bool loom_display_profile_set_value(LoomDisplayProfile *profile, const char *key, const char *value)
+{
+    int parsed_int = 0;
+    bool parsed_bool = false;
+
+    if (strcmp(key, "id") == 0) {
+        snprintf(profile->id, sizeof(profile->id), "%s", value);
+        return true;
+    }
+    if (strcmp(key, "name") == 0) {
+        snprintf(profile->name, sizeof(profile->name), "%s", value);
+        return true;
+    }
+    if (strcmp(key, "enabled") == 0) {
+        if (!parse_bool(value, &parsed_bool)) {
+            return false;
+        }
+        profile->enabled = parsed_bool;
+        return true;
+    }
+    if (strcmp(key, "paused") == 0) {
+        if (!parse_bool(value, &parsed_bool)) {
+            return false;
+        }
+        profile->paused = parsed_bool;
+        return true;
+    }
+    if (strcmp(key, "auto_connect") == 0) {
+        if (!parse_bool(value, &parsed_bool)) {
+            return false;
+        }
+        profile->auto_connect = parsed_bool;
+        return true;
+    }
+    if (strcmp(key, "mode_width") == 0) {
+        if (!parse_int(value, &parsed_int)) {
+            return false;
+        }
+        profile->mode_width = parsed_int;
+        return true;
+    }
+    if (strcmp(key, "mode_height") == 0) {
+        if (!parse_int(value, &parsed_int)) {
+            return false;
+        }
+        profile->mode_height = parsed_int;
+        return true;
+    }
+    if (strcmp(key, "mode_refresh") == 0) {
+        if (!parse_int(value, &parsed_int)) {
+            return false;
+        }
+        profile->mode_refresh = parsed_int;
+        return true;
+    }
+    if (strcmp(key, "stream_transport") == 0 || strcmp(key, "transport") == 0) {
+        if (strcmp(value, "tcp") != 0 && strcmp(value, "usb_accessory") != 0) {
+            return false;
+        }
+        snprintf(profile->stream_transport, sizeof(profile->stream_transport), "%s", value);
+        return true;
+    }
+    if (strcmp(key, "stream_host") == 0) {
+        snprintf(profile->stream_host, sizeof(profile->stream_host), "%s", value);
+        return true;
+    }
+    if (strcmp(key, "stream_port") == 0) {
+        if (!parse_int(value, &parsed_int)) {
+            return false;
+        }
+        profile->stream_port = parsed_int;
+        return true;
+    }
+    if (strcmp(key, "stream_bitrate_kbps") == 0) {
+        if (!parse_int(value, &parsed_int)) {
+            return false;
+        }
+        profile->stream_bitrate_kbps = parsed_int;
+        return true;
+    }
+    if (strcmp(key, "stream_fps") == 0) {
+        if (!parse_int(value, &parsed_int)) {
+            return false;
+        }
+        profile->stream_fps = parsed_int;
+        return true;
+    }
+    if (strcmp(key, "usb_serial") == 0) {
+        snprintf(profile->usb_serial, sizeof(profile->usb_serial), "%s", value);
+        return true;
+    }
+    return false;
+}
+
+bool loom_display_profile_get_value(const LoomDisplayProfile *profile,
+                                    const char *key,
+                                    char *buffer,
+                                    size_t buffer_size)
+{
+    if (strcmp(key, "id") == 0) {
+        snprintf(buffer, buffer_size, "%s", profile->id);
+    } else if (strcmp(key, "name") == 0) {
+        snprintf(buffer, buffer_size, "%s", profile->name);
+    } else if (strcmp(key, "enabled") == 0) {
+        snprintf(buffer, buffer_size, "%s", profile->enabled ? "true" : "false");
+    } else if (strcmp(key, "paused") == 0) {
+        snprintf(buffer, buffer_size, "%s", profile->paused ? "true" : "false");
+    } else if (strcmp(key, "auto_connect") == 0) {
+        snprintf(buffer, buffer_size, "%s", profile->auto_connect ? "true" : "false");
+    } else if (strcmp(key, "mode_width") == 0) {
+        snprintf(buffer, buffer_size, "%d", profile->mode_width);
+    } else if (strcmp(key, "mode_height") == 0) {
+        snprintf(buffer, buffer_size, "%d", profile->mode_height);
+    } else if (strcmp(key, "mode_refresh") == 0) {
+        snprintf(buffer, buffer_size, "%d", profile->mode_refresh);
+    } else if (strcmp(key, "stream_transport") == 0 || strcmp(key, "transport") == 0) {
+        snprintf(buffer, buffer_size, "%s", profile->stream_transport);
+    } else if (strcmp(key, "stream_host") == 0) {
+        snprintf(buffer, buffer_size, "%s", profile->stream_host);
+    } else if (strcmp(key, "stream_port") == 0) {
+        snprintf(buffer, buffer_size, "%d", profile->stream_port);
+    } else if (strcmp(key, "stream_bitrate_kbps") == 0) {
+        snprintf(buffer, buffer_size, "%d", profile->stream_bitrate_kbps);
+    } else if (strcmp(key, "stream_fps") == 0) {
+        snprintf(buffer, buffer_size, "%d", profile->stream_fps);
+    } else if (strcmp(key, "usb_serial") == 0) {
+        snprintf(buffer, buffer_size, "%s", profile->usb_serial);
+    } else {
+        return false;
+    }
+    return true;
 }
 
 bool loom_settings_set_value(LoomSettings *settings, const char *key, const char *value)
@@ -120,6 +272,37 @@ bool loom_settings_set_value(LoomSettings *settings, const char *key, const char
     int parsed_int = 0;
     bool parsed_bool = false;
 
+    if (strncmp(key, "display.", 8) == 0) {
+        const char *rest = key + 8;
+        char *end = NULL;
+        errno = 0;
+        unsigned long index = strtoul(rest, &end, 10);
+        if (errno != 0 || end == rest || *end != '.' || index >= LOOM_MAX_DISPLAY_PROFILES) {
+            return false;
+        }
+        if (index >= settings->display_count) {
+            for (size_t i = settings->display_count; i <= index; i++) {
+                char id[32];
+                snprintf(id, sizeof(id), "display%zu", i);
+                display_profile_defaults(&settings->displays[i], id);
+            }
+            settings->display_count = index + 1;
+        }
+        return loom_display_profile_set_value(&settings->displays[index], end + 1, value);
+    }
+    if (strcmp(key, "display_count") == 0) {
+        if (!parse_int(value, &parsed_int) || parsed_int < 0 ||
+            parsed_int > LOOM_MAX_DISPLAY_PROFILES) {
+            return false;
+        }
+        for (size_t i = settings->display_count; i < (size_t)parsed_int; i++) {
+            char id[32];
+            snprintf(id, sizeof(id), "display%zu", i);
+            display_profile_defaults(&settings->displays[i], id);
+        }
+        settings->display_count = (size_t)parsed_int;
+        return true;
+    }
     if (strcmp(key, "device") == 0 || strcmp(key, "device_index") == 0) {
         if (!parse_int(value, &parsed_int)) {
             return false;
@@ -233,7 +416,22 @@ bool loom_settings_get_value(const LoomSettings *settings,
                              char *buffer,
                              size_t buffer_size)
 {
-    if (strcmp(key, "device") == 0 || strcmp(key, "device_index") == 0) {
+    if (strncmp(key, "display.", 8) == 0) {
+        const char *rest = key + 8;
+        char *end = NULL;
+        errno = 0;
+        unsigned long index = strtoul(rest, &end, 10);
+        if (errno != 0 || end == rest || *end != '.' || index >= settings->display_count) {
+            return false;
+        }
+        return loom_display_profile_get_value(&settings->displays[index],
+                                              end + 1,
+                                              buffer,
+                                              buffer_size);
+    }
+    if (strcmp(key, "display_count") == 0) {
+        snprintf(buffer, buffer_size, "%zu", settings->display_count);
+    } else if (strcmp(key, "device") == 0 || strcmp(key, "device_index") == 0) {
         snprintf(buffer, buffer_size, "%d", settings->device_index);
     } else if (strcmp(key, "capture") == 0 || strcmp(key, "capture_enabled") == 0) {
         snprintf(buffer, buffer_size, "%s", settings->capture_enabled ? "true" : "false");
@@ -315,21 +513,24 @@ bool loom_settings_save(const LoomSettings *settings, const char *path)
         return false;
     }
 
-    fprintf(file, "device=%d\n", settings->device_index);
-    fprintf(file, "capture_enabled=%s\n", settings->capture_enabled ? "true" : "false");
-    fprintf(file, "dump_frame=%s\n", settings->dump_frame ? "true" : "false");
-    fprintf(file, "dump_path=%s\n", settings->dump_path);
-    fprintf(file, "mode_width=%d\n", settings->mode_width);
-    fprintf(file, "mode_height=%d\n", settings->mode_height);
-    fprintf(file, "mode_refresh=%d\n", settings->mode_refresh);
-    fprintf(file, "pixel_area_limit=%u\n", settings->pixel_area_limit);
-    fprintf(file, "pixel_per_second_limit=%u\n", settings->pixel_per_second_limit);
-    fprintf(file, "stream_enabled=%s\n", settings->stream_enabled ? "true" : "false");
-    fprintf(file, "stream_transport=%s\n", settings->stream_transport);
-    fprintf(file, "stream_host=%s\n", settings->stream_host);
-    fprintf(file, "stream_port=%d\n", settings->stream_port);
-    fprintf(file, "stream_bitrate_kbps=%d\n", settings->stream_bitrate_kbps);
-    fprintf(file, "stream_fps=%d\n", settings->stream_fps);
+    fprintf(file, "display_count=%zu\n", settings->display_count);
+    for (size_t i = 0; i < settings->display_count; i++) {
+        const LoomDisplayProfile *display = &settings->displays[i];
+        fprintf(file, "display.%zu.id=%s\n", i, display->id);
+        fprintf(file, "display.%zu.name=%s\n", i, display->name);
+        fprintf(file, "display.%zu.enabled=%s\n", i, display->enabled ? "true" : "false");
+        fprintf(file, "display.%zu.paused=%s\n", i, display->paused ? "true" : "false");
+        fprintf(file, "display.%zu.auto_connect=%s\n", i, display->auto_connect ? "true" : "false");
+        fprintf(file, "display.%zu.mode_width=%d\n", i, display->mode_width);
+        fprintf(file, "display.%zu.mode_height=%d\n", i, display->mode_height);
+        fprintf(file, "display.%zu.mode_refresh=%d\n", i, display->mode_refresh);
+        fprintf(file, "display.%zu.stream_transport=%s\n", i, display->stream_transport);
+        fprintf(file, "display.%zu.stream_host=%s\n", i, display->stream_host);
+        fprintf(file, "display.%zu.stream_port=%d\n", i, display->stream_port);
+        fprintf(file, "display.%zu.stream_bitrate_kbps=%d\n", i, display->stream_bitrate_kbps);
+        fprintf(file, "display.%zu.stream_fps=%d\n", i, display->stream_fps);
+        fprintf(file, "display.%zu.usb_serial=%s\n", i, display->usb_serial);
+    }
 
     if (fclose(file) != 0) {
         log_error("failed to close %s: %s", path, strerror(errno));
@@ -340,21 +541,24 @@ bool loom_settings_save(const LoomSettings *settings, const char *path)
 
 void loom_settings_print(const LoomSettings *settings)
 {
-    printf("device=%d\n", settings->device_index);
-    printf("capture_enabled=%s\n", settings->capture_enabled ? "true" : "false");
-    printf("dump_frame=%s\n", settings->dump_frame ? "true" : "false");
-    printf("dump_path=%s\n", settings->dump_path);
-    printf("mode_width=%d\n", settings->mode_width);
-    printf("mode_height=%d\n", settings->mode_height);
-    printf("mode_refresh=%d\n", settings->mode_refresh);
-    printf("pixel_area_limit=%u\n", settings->pixel_area_limit);
-    printf("pixel_per_second_limit=%u\n", settings->pixel_per_second_limit);
-    printf("stream_enabled=%s\n", settings->stream_enabled ? "true" : "false");
-    printf("stream_transport=%s\n", settings->stream_transport);
-    printf("stream_host=%s\n", settings->stream_host);
-    printf("stream_port=%d\n", settings->stream_port);
-    printf("stream_bitrate_kbps=%d\n", settings->stream_bitrate_kbps);
-    printf("stream_fps=%d\n", settings->stream_fps);
+    printf("display_count=%zu\n", settings->display_count);
+    for (size_t i = 0; i < settings->display_count; i++) {
+        const LoomDisplayProfile *display = &settings->displays[i];
+        printf("display.%zu.id=%s\n", i, display->id);
+        printf("display.%zu.name=%s\n", i, display->name);
+        printf("display.%zu.enabled=%s\n", i, display->enabled ? "true" : "false");
+        printf("display.%zu.paused=%s\n", i, display->paused ? "true" : "false");
+        printf("display.%zu.auto_connect=%s\n", i, display->auto_connect ? "true" : "false");
+        printf("display.%zu.mode_width=%d\n", i, display->mode_width);
+        printf("display.%zu.mode_height=%d\n", i, display->mode_height);
+        printf("display.%zu.mode_refresh=%d\n", i, display->mode_refresh);
+        printf("display.%zu.stream_transport=%s\n", i, display->stream_transport);
+        printf("display.%zu.stream_host=%s\n", i, display->stream_host);
+        printf("display.%zu.stream_port=%d\n", i, display->stream_port);
+        printf("display.%zu.stream_bitrate_kbps=%d\n", i, display->stream_bitrate_kbps);
+        printf("display.%zu.stream_fps=%d\n", i, display->stream_fps);
+        printf("display.%zu.usb_serial=%s\n", i, display->usb_serial);
+    }
 }
 
 const char *loom_settings_default_user_path(char *buffer, size_t buffer_size)

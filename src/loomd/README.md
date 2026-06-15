@@ -29,6 +29,10 @@ Later modules can be added behind the same daemon boundary:
 EvdiDevice -> Framebuffer -> Encoder(VAAPI/AMD render node) -> Transport(ADB/USB)
 ```
 
+Multi-display support will be managed by a `DisplayManager` that owns one
+runtime display session per configured tablet. With the current EVDI kernel
+module, each active virtual display maps to one EVDI DRM card internally.
+
 Current streaming prototype uses GStreamer:
 
 ```text
@@ -97,13 +101,10 @@ Useful options:
 ```bash
 ./build/loomd --help
 sudo ./build/loomd --config "$HOME/.config/loom/loomd.conf"
-sudo ./build/loomd --device 0
-sudo ./build/loomd --no-capture
-sudo ./build/loomd --dump-frame frame.raw
-sudo ./build/loomd --no-dump-frame
 ```
 
-`--no-capture` keeps the fake monitor connected and logs display events only. Without it, `loomd` allocates a CPU buffer after the first mode event, registers it with EVDI, requests updates, logs dirty rectangles, and dumps the first captured frame to `frame.raw` by default.
+`loomd` starts with zero configured displays. Add displays through D-Bus using
+`loomctl display add`; each active display owns one EVDI card internally.
 
 Settings are shared with `loomctl` through the config parser in `src/common`. The default user config path is `~/.config/loom/loomd.conf`; pass `--config` when running under `sudo` if you want to force a specific user-owned settings file.
 
@@ -115,12 +116,13 @@ object:    /org/loom/Display
 interface: org.loom.Display1
 ```
 
-`loomctl status`, `loomctl get KEY`, and `loomctl set KEY VALUE` call that live service. Runtime setting changes currently update the daemon's in-memory settings; only capture and frame-dump settings are applied immediately to the active EVDI loop.
+`loomctl status`, `loomctl display list`, and other `loomctl display ...`
+commands call that live service. Runtime display changes are saved back to the
+user config path passed to `loomd`.
 
-Streaming settings:
+Per-display streaming settings:
 
 ```text
-stream_enabled=true|false
 stream_transport=tcp|usb_accessory
 stream_host=127.0.0.1
 stream_port=27183
@@ -128,22 +130,20 @@ stream_bitrate_kbps=8000
 stream_fps=30
 ```
 
-When `stream_enabled` becomes true and a framebuffer is already registered, `loomd` starts the GStreamer encoder immediately.
-
 TCP streaming:
 
 ```bash
 adb forward tcp:27183 tcp:27183
-./build/loomctl set stream_transport tcp
-./build/loomctl set stream_enabled true
+./build/loomctl display add lenovo-tab "Lenovo Tab"
+./build/loomctl display set lenovo-tab stream_transport tcp
 ```
 
 USB accessory streaming:
 
 ```bash
 LD_LIBRARY_PATH=third_party/evdi/library sudo -E ./build/loomd --config "$HOME/.config/loom/loomd.conf"
-./build/loomctl set stream_transport usb_accessory
-./build/loomctl set stream_enabled true
+./build/loomctl display add lenovo-tab "Lenovo Tab"
+./build/loomctl display set lenovo-tab stream_transport usb_accessory
 ```
 
 The Android app declares an accessory filter for manufacturer `Loom`, model `Loom Display`, version `0.1`.

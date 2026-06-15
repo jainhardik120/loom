@@ -14,6 +14,7 @@ typedef struct UsbAccessoryTransport {
 
 void usb_accessory_init(UsbAccessoryTransport *transport);
 bool usb_accessory_switch_to_accessory(void);
+bool usb_accessory_device_present(void);
 bool usb_accessory_start(UsbAccessoryTransport *transport);
 void usb_accessory_stop(UsbAccessoryTransport *transport);
 bool usb_accessory_write(UsbAccessoryTransport *transport, const void *data, size_t size);

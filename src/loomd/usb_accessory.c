@@ -128,6 +128,30 @@ static libusb_device_handle *find_aoa_handle(libusb_context *context)
     return handle;
 }
 
+static bool find_aoa_device(libusb_context *context)
+{
+    libusb_device **devices = NULL;
+    ssize_t count = libusb_get_device_list(context, &devices);
+    if (count < 0) {
+        return false;
+    }
+
+    bool found = false;
+    for (ssize_t i = 0; i < count; i++) {
+        struct libusb_device_descriptor desc;
+        if (libusb_get_device_descriptor(devices[i], &desc) != 0) {
+            continue;
+        }
+        if (is_aoa_pid(desc.idVendor, desc.idProduct)) {
+            found = true;
+            break;
+        }
+    }
+
+    libusb_free_device_list(devices, 1);
+    return found;
+}
+
 static bool find_bulk_out_endpoint(UsbAccessoryTransport *transport)
 {
     libusb_device *device = libusb_get_device((libusb_device_handle *)transport->handle);
@@ -231,6 +255,18 @@ bool usb_accessory_switch_to_accessory(void)
     libusb_close(handle);
     libusb_exit(context);
     return true;
+}
+
+bool usb_accessory_device_present(void)
+{
+    libusb_context *context = NULL;
+    int rc = libusb_init(&context);
+    if (rc < 0) {
+        return false;
+    }
+    bool present = find_aoa_device(context);
+    libusb_exit(context);
+    return present;
 }
 
 bool usb_accessory_start(UsbAccessoryTransport *transport)
@@ -342,6 +378,11 @@ bool usb_accessory_start(UsbAccessoryTransport *transport)
 bool usb_accessory_switch_to_accessory(void)
 {
     log_error("USB accessory transport requires libusb-1.0-dev at build time");
+    return false;
+}
+
+bool usb_accessory_device_present(void)
+{
     return false;
 }
 

@@ -30,6 +30,7 @@ COMMON_SRCS := \
 LOOMD_SRCS := \
 	loomd/main.c \
 	loomd/control_service.c \
+	loomd/display_manager.c \
 	loomd/evdi_device.c \
 	loomd/evdi_logging.c \
 	loomd/framebuffer.c \

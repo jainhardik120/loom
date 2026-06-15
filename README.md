@@ -13,6 +13,9 @@ Monorepo for the Loom tablet-as-secondary-display project.
 - `src/loomctl`: command-line client C code.
 - `third_party/evdi`: EVDI source embedded as a Git submodule.
 
+The multi-display direction is described in
+[`docs/multi-display-architecture.md`](docs/multi-display-architecture.md).
+
 Current prototype pipeline:
 
 ```text
@@ -77,6 +80,17 @@ build/loom-tray
 
 `loomd`, `loomctl`, and `loom-tray` intentionally share code from `src/common`.
 
+`loomd` now starts as a controller with zero configured displays. Add displays
+explicitly through `loomctl`:
+
+```bash
+./build/loomctl display list
+./build/loomctl display add lenovo-tab "Lenovo Tab"
+./build/loomctl display pause lenovo-tab
+./build/loomctl display resume lenovo-tab
+./build/loomctl display remove lenovo-tab
+```
+
 ## Run
 
 Load EVDI first if needed:
@@ -113,9 +127,7 @@ Useful daemon options:
 
 ```bash
 ./build/loomd --help
-sudo ./build/loomd --device 0
-sudo ./build/loomd --no-capture
-sudo ./build/loomd --dump-frame frame.raw
+sudo ./build/loomd --config "$HOME/.config/loom/loomd.conf"
 ```
 
 ## Android Stream
@@ -134,29 +146,19 @@ USB accessory streaming:
 
 ```bash
 LD_LIBRARY_PATH=third_party/evdi/library sudo -E ./build/loomd --config "$HOME/.config/loom/loomd.conf"
-./build/loomctl set stream_transport usb_accessory
-./build/loomctl set stream_bitrate_kbps 8000
-./build/loomctl set stream_fps 30
-./build/loomctl set stream_enabled true
+./build/loomctl display add lenovo-tab "Lenovo Tab"
+./build/loomctl display set lenovo-tab stream_transport usb_accessory
+./build/loomctl display set lenovo-tab stream_bitrate_kbps 8000
+./build/loomctl display set lenovo-tab stream_fps 30
 ```
 
 TCP fallback through ADB:
 
 ```bash
 adb forward tcp:27183 tcp:27183
-./build/loomctl set stream_host 127.0.0.1
-./build/loomctl set stream_port 27183
-./build/loomctl set stream_transport tcp
-./build/loomctl set stream_bitrate_kbps 8000
-./build/loomctl set stream_fps 30
-./build/loomctl set stream_enabled true
-```
-
-For settings that should persist across daemon restarts:
-
-```bash
-./build/loomctl settings set stream_enabled true
-./build/loomctl settings set stream_port 27183
+./build/loomctl display set lenovo-tab stream_transport tcp
+./build/loomctl display set lenovo-tab stream_host 127.0.0.1
+./build/loomctl display set lenovo-tab stream_port 27183
 ```
 
 The Android app prefers an attached Loom USB accessory stream and falls back to TCP on port `27183`. It decodes H.264 using `MediaCodec`.

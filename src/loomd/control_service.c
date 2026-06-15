@@ -14,24 +14,185 @@ static int method_status(sd_bus_message *message, void *userdata, sd_bus_error *
 {
     (void)ret_error;
     LoomControlService *service = userdata;
-    char status[640];
-
+    char status[1024];
     snprintf(status,
              sizeof(status),
-             "loomd running; evdi_card=%d; connected=%s; capture=%s; dump_frame=%s; stream=%s; stream_transport=%s; stream_target=%s:%d; mode_limit=%dx%d@%d",
-             service->device ? service->device->device_index : -1,
-             service->device && service->device->connected ? "true" : "false",
-             service->settings && service->settings->capture_enabled ? "true" : "false",
-             service->settings && service->settings->dump_frame ? "true" : "false",
-             service->settings && service->settings->stream_enabled ? "true" : "false",
-             service->settings ? service->settings->stream_transport : "",
-             service->settings ? service->settings->stream_host : "",
-             service->settings ? service->settings->stream_port : 0,
-             service->settings ? service->settings->mode_width : 0,
-             service->settings ? service->settings->mode_height : 0,
-             service->settings ? service->settings->mode_refresh : 0);
+             "loomd running; displays=%zu; active=%zu",
+             service->display_manager ? service->display_manager->session_count : 0,
+             service->display_manager ? display_manager_active_count(service->display_manager) : 0);
 
     return sd_bus_reply_method_return(message, "s", status);
+}
+
+static void sync_settings_from_manager(LoomControlService *service)
+{
+    service->settings->display_count = service->display_manager->session_count;
+    for (size_t i = 0; i < service->display_manager->session_count; i++) {
+        service->settings->displays[i] = service->display_manager->sessions[i].profile;
+    }
+}
+
+static void save_settings(LoomControlService *service)
+{
+    if (service->config_path[0] == '\0') {
+        return;
+    }
+    sync_settings_from_manager(service);
+    if (!loom_settings_save(service->settings, service->config_path)) {
+        log_warn("failed to save settings to %s", service->config_path);
+    }
+}
+
+static int method_list_displays(sd_bus_message *message, void *userdata, sd_bus_error *ret_error)
+{
+    (void)ret_error;
+    LoomControlService *service = userdata;
+    char output[4096];
+    size_t used = 0;
+
+    used += (size_t)snprintf(output + used,
+                             sizeof(output) - used,
+                             "display_count=%zu\n",
+                             service->display_manager->session_count);
+    for (size_t i = 0; i < service->display_manager->session_count && used < sizeof(output); i++) {
+        LoomDisplaySession *session = &service->display_manager->sessions[i];
+        used += (size_t)snprintf(output + used,
+                                 sizeof(output) - used,
+                                 "%s name=\"%s\" state=%s enabled=%s paused=%s mode=%dx%d@%d transport=%s evdi_card=%d\n",
+                                 session->profile.id,
+                                 session->profile.name,
+                                 display_session_state_name(session->state),
+                                 session->profile.enabled ? "true" : "false",
+                                 session->profile.paused ? "true" : "false",
+                                 session->profile.mode_width,
+                                 session->profile.mode_height,
+                                 session->profile.mode_refresh,
+                                 session->profile.stream_transport,
+                                 session->evdi_open ? session->evdi.device_index : -1);
+    }
+
+    return sd_bus_reply_method_return(message, "s", output);
+}
+
+static int method_add_display(sd_bus_message *message, void *userdata, sd_bus_error *ret_error)
+{
+    LoomControlService *service = userdata;
+    const char *id = NULL;
+    const char *name = NULL;
+    int width = 0;
+    int height = 0;
+    int refresh = 0;
+    const char *transport = NULL;
+
+    int rc = sd_bus_message_read(message, "sssiii", &id, &name, &transport, &width, &height, &refresh);
+    if (rc < 0) {
+        return rc;
+    }
+    if (!id || id[0] == '\0' || display_manager_find(service->display_manager, id)) {
+        return sd_bus_error_setf(ret_error, SD_BUS_ERROR_INVALID_ARGS, "invalid or duplicate display id");
+    }
+
+    LoomDisplayProfile profile;
+    memset(&profile, 0, sizeof(profile));
+    snprintf(profile.id, sizeof(profile.id), "%s", id);
+    snprintf(profile.name, sizeof(profile.name), "%s", name && name[0] ? name : id);
+    profile.enabled = true;
+    profile.paused = false;
+    profile.auto_connect = true;
+    profile.mode_width = width > 0 ? width : 1920;
+    profile.mode_height = height > 0 ? height : 1200;
+    profile.mode_refresh = refresh > 0 ? refresh : 30;
+    snprintf(profile.stream_transport, sizeof(profile.stream_transport), "%s",
+             transport && transport[0] ? transport : "usb_accessory");
+    snprintf(profile.stream_host, sizeof(profile.stream_host), "127.0.0.1");
+    profile.stream_port = 27183;
+    profile.stream_bitrate_kbps = 12000;
+    profile.stream_fps = profile.mode_refresh;
+    if (!display_manager_add_profile(service->display_manager, &profile)) {
+        return sd_bus_error_setf(ret_error, SD_BUS_ERROR_FAILED, "failed to add display");
+    }
+    display_manager_start_session(display_manager_find(service->display_manager, id));
+    save_settings(service);
+    return sd_bus_reply_method_return(message, "b", 1);
+}
+
+static int method_remove_display(sd_bus_message *message, void *userdata, sd_bus_error *ret_error)
+{
+    LoomControlService *service = userdata;
+    const char *id = NULL;
+    int rc = sd_bus_message_read(message, "s", &id);
+    if (rc < 0) {
+        return rc;
+    }
+    if (!display_manager_remove(service->display_manager, id)) {
+        return sd_bus_error_setf(ret_error, SD_BUS_ERROR_INVALID_ARGS, "unknown display: %s", id);
+    }
+    save_settings(service);
+    return sd_bus_reply_method_return(message, "b", 1);
+}
+
+static int method_pause_display(sd_bus_message *message, void *userdata, sd_bus_error *ret_error)
+{
+    LoomControlService *service = userdata;
+    const char *id = NULL;
+    int rc = sd_bus_message_read(message, "s", &id);
+    if (rc < 0) {
+        return rc;
+    }
+    LoomDisplaySession *session = display_manager_find(service->display_manager, id);
+    if (!session) {
+        return sd_bus_error_setf(ret_error, SD_BUS_ERROR_INVALID_ARGS, "unknown display: %s", id);
+    }
+    session->profile.paused = true;
+    display_manager_stop_session(session);
+    save_settings(service);
+    return sd_bus_reply_method_return(message, "b", 1);
+}
+
+static int method_resume_display(sd_bus_message *message, void *userdata, sd_bus_error *ret_error)
+{
+    LoomControlService *service = userdata;
+    const char *id = NULL;
+    int rc = sd_bus_message_read(message, "s", &id);
+    if (rc < 0) {
+        return rc;
+    }
+    LoomDisplaySession *session = display_manager_find(service->display_manager, id);
+    if (!session) {
+        return sd_bus_error_setf(ret_error, SD_BUS_ERROR_INVALID_ARGS, "unknown display: %s", id);
+    }
+    session->profile.paused = false;
+    session->profile.enabled = true;
+    display_manager_start_session(session);
+    save_settings(service);
+    return sd_bus_reply_method_return(message, "b", 1);
+}
+
+static int method_set_display_setting(sd_bus_message *message, void *userdata, sd_bus_error *ret_error)
+{
+    LoomControlService *service = userdata;
+    const char *id = NULL;
+    const char *key = NULL;
+    const char *value = NULL;
+    int rc = sd_bus_message_read(message, "sss", &id, &key, &value);
+    if (rc < 0) {
+        return rc;
+    }
+    LoomDisplaySession *session = display_manager_find(service->display_manager, id);
+    if (!session) {
+        return sd_bus_error_setf(ret_error, SD_BUS_ERROR_INVALID_ARGS, "unknown display: %s", id);
+    }
+    if (!loom_display_profile_set_value(&session->profile, key, value)) {
+        return sd_bus_error_setf(ret_error, SD_BUS_ERROR_INVALID_ARGS, "invalid setting: %s", key);
+    }
+    if (session->evdi_open) {
+        display_manager_stop_session(session);
+        if (session->profile.enabled && !session->profile.paused) {
+            display_manager_start_session(session);
+        }
+    }
+    save_settings(service);
+    return sd_bus_reply_method_return(message, "b", 1);
 }
 
 static int method_get_setting(sd_bus_message *message, void *userdata, sd_bus_error *ret_error)
@@ -83,38 +244,7 @@ static int method_set_setting(sd_bus_message *message, void *userdata, sd_bus_er
                                  value);
     }
 
-    if (service->device) {
-        service->device->capture_enabled = service->settings->capture_enabled;
-        service->device->dump_frame = service->settings->dump_frame;
-        service->device->dump_path = service->settings->dump_path;
-        StreamConfig stream_config;
-        stream_config.enabled = service->settings->stream_enabled;
-        snprintf(stream_config.transport, sizeof(stream_config.transport), "%s", service->settings->stream_transport);
-        snprintf(stream_config.host, sizeof(stream_config.host), "%s", service->settings->stream_host);
-        stream_config.port = service->settings->stream_port;
-        stream_config.bitrate_kbps = service->settings->stream_bitrate_kbps;
-        stream_config.fps = service->settings->stream_fps;
-        if (stream_config.enabled &&
-            service->device->stream_encoder.running &&
-            setting_requires_stream_restart(key)) {
-            log_info("restarting stream encoder for setting change: %s", key);
-            stream_encoder_stop(&service->device->stream_encoder);
-        }
-        stream_encoder_configure(&service->device->stream_encoder, &stream_config);
-        if (!stream_config.enabled) {
-            stream_encoder_stop(&service->device->stream_encoder);
-        } else if (service->device->framebuffer.registered) {
-            if (stream_encoder_start(&service->device->stream_encoder,
-                                     service->device->framebuffer.evdi_buffer.width,
-                                     service->device->framebuffer.evdi_buffer.height,
-                                     service->device->framebuffer.evdi_buffer.stride)) {
-                stream_encoder_write_frame(&service->device->stream_encoder,
-                                           service->device->framebuffer.evdi_buffer.buffer,
-                                           service->device->framebuffer.size_bytes);
-            }
-        }
-    }
-
+    (void)setting_requires_stream_restart;
     log_info("D-Bus setting changed: %s=%s", key, value);
     return sd_bus_reply_method_return(message, "b", 1);
 }
@@ -124,6 +254,12 @@ static const sd_bus_vtable k_control_vtable[] = {
     SD_BUS_METHOD("Status", "", "s", method_status, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("GetSetting", "s", "s", method_get_setting, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("SetSetting", "ss", "b", method_set_setting, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("ListDisplays", "", "s", method_list_displays, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("AddDisplay", "sssiii", "b", method_add_display, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("RemoveDisplay", "s", "b", method_remove_display, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("PauseDisplay", "s", "b", method_pause_display, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("ResumeDisplay", "s", "b", method_resume_display, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("SetDisplaySetting", "sss", "b", method_set_display_setting, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_VTABLE_END
 };
 
@@ -225,11 +361,15 @@ static int open_sudo_user_bus(sd_bus **bus)
 
 bool control_service_start(LoomControlService *service,
                            LoomSettings *settings,
-                           EvdiDevice *device)
+                           LoomDisplayManager *display_manager,
+                           const char *config_path)
 {
     memset(service, 0, sizeof(*service));
     service->settings = settings;
-    service->device = device;
+    service->display_manager = display_manager;
+    if (config_path) {
+        snprintf(service->config_path, sizeof(service->config_path), "%s", config_path);
+    }
 
     int rc = -ENXIO;
     if (geteuid() == 0 && getenv("SUDO_UID")) {

@@ -38,7 +38,7 @@ static bool install_signal_handlers(void)
     return true;
 }
 
-int event_loop_run(EvdiDevice *device, LoomControlService *control_service)
+int event_loop_run(LoomDisplayManager *display_manager, LoomControlService *control_service)
 {
     if (!install_signal_handlers()) {
         return 1;
@@ -47,15 +47,30 @@ int event_loop_run(EvdiDevice *device, LoomControlService *control_service)
     log_info("entering event loop; press Ctrl+C to stop");
     while (!g_stop_requested) {
         control_service_dispatch(control_service);
-        evdi_device_request_update(device);
+        display_manager_tick(display_manager);
+        for (size_t i = 0; i < display_manager->session_count; i++) {
+            LoomDisplaySession *session = &display_manager->sessions[i];
+            if (session->evdi_open) {
+                evdi_device_request_update(&session->evdi);
+            }
+        }
 
-        struct pollfd pfds[2];
+        struct pollfd pfds[LOOM_MAX_DISPLAY_SESSIONS + 1];
+        LoomDisplaySession *poll_sessions[LOOM_MAX_DISPLAY_SESSIONS];
         int nfds = 0;
+        int evdi_fds = 0;
 
-        pfds[nfds].fd = evdi_device_event_fd(device);
-        pfds[nfds].events = POLLIN;
-        pfds[nfds].revents = 0;
-        nfds++;
+        for (size_t i = 0; i < display_manager->session_count; i++) {
+            LoomDisplaySession *session = &display_manager->sessions[i];
+            if (!session->evdi_open) {
+                continue;
+            }
+            pfds[nfds].fd = evdi_device_event_fd(&session->evdi);
+            pfds[nfds].events = POLLIN;
+            pfds[nfds].revents = 0;
+            poll_sessions[evdi_fds++] = session;
+            nfds++;
+        }
 
         const int dbus_fd = control_service_fd(control_service);
         if (dbus_fd >= 0) {
@@ -83,15 +98,18 @@ int event_loop_run(EvdiDevice *device, LoomControlService *control_service)
             continue;
         }
 
-        if ((pfds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
-            log_warn("EVDI event fd returned revents=0x%x", pfds[0].revents);
+        for (int i = 0; i < evdi_fds; i++) {
+            if ((pfds[i].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+                log_warn("display %s EVDI event fd returned revents=0x%x",
+                         poll_sessions[i]->profile.id,
+                         pfds[i].revents);
+            }
+            if ((pfds[i].revents & POLLIN) != 0) {
+                evdi_device_handle_events(&poll_sessions[i]->evdi);
+            }
         }
 
-        if ((pfds[0].revents & POLLIN) != 0) {
-            evdi_device_handle_events(device);
-        }
-
-        if (nfds > 1 && pfds[1].revents != 0) {
+        if (dbus_fd >= 0 && nfds > evdi_fds && pfds[evdi_fds].revents != 0) {
             control_service_dispatch(control_service);
         }
     }
