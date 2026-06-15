@@ -1,0 +1,20 @@
+{
+  "C_Cpp.default.compilerPath": "/usr/bin/gcc",
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/compile_commands.json",
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/src/common",
+    "${workspaceFolder}/src/loomd",
+    "${workspaceFolder}/src/loomctl",
+    "${workspaceFolder}/src/loom-tray",
+    "${workspaceFolder}/third_party/evdi/library",
+    "${workspaceFolder}/third_party/evdi/module",
+    "/usr/include",
+    "/usr/include/libusb-1.0",
+    "/usr/include/libdrm",
+    "/usr/include/gtk-3.0"
+  ],
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}"
+  ],
+  "java.jdt.ls.java.home": "/usr/lib/jvm/java-21-openjdk-amd64"
+}

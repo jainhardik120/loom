@@ -1,0 +1,56 @@
+{
+  "name": "Loom Linux Desktop + Android",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "privileged": true,
+  "runArgs": [
+    "--network=host",
+    "--device=/dev/dri",
+    "--device=/dev/bus/usb"
+  ],
+  "mounts": [
+    "source=/lib/modules,target=/lib/modules,type=bind,readonly",
+    "source=/usr/src,target=/usr/src,type=bind,readonly"
+  ],
+  "containerEnv": {
+    "ANDROID_HOME": "/opt/android-sdk",
+    "ANDROID_SDK_ROOT": "/opt/android-sdk"
+  },
+  "postCreateCommand": ".devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "llvm-vs-code-extensions.vscode-clangd",
+        "vadimcn.vscode-lldb",
+        "redhat.java",
+        "vscjava.vscode-gradle",
+        "esbenp.prettier-vscode",
+        "dbaeumer.vscode-eslint"
+      ],
+      "settings": {
+        "C_Cpp.default.compilerPath": "/usr/bin/gcc",
+        "C_Cpp.default.compileCommands": "${workspaceFolder}/compile_commands.json",
+        "C_Cpp.default.includePath": [
+          "${workspaceFolder}/src/common",
+          "${workspaceFolder}/src/loomd",
+          "${workspaceFolder}/src/loomctl",
+          "${workspaceFolder}/src/loom-tray",
+          "${workspaceFolder}/third_party/evdi/library",
+          "${workspaceFolder}/third_party/evdi/module",
+          "/usr/include",
+          "/usr/include/libusb-1.0",
+          "/usr/include/libdrm",
+          "/usr/include/gtk-3.0"
+        ],
+        "clangd.arguments": [
+          "--compile-commands-dir=${workspaceFolder}"
+        ],
+        "java.jdt.ls.java.home": "/usr/lib/jvm/java-21-openjdk-amd64",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}

@@ -11,6 +11,7 @@ modules.order
 build/
 logs/
 frame.raw
+compile_commands.json
 
 src/loomd/frame.raw
 

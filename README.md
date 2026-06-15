@@ -80,6 +80,39 @@ build/loom-tray
 
 `loomd`, `loomctl`, and `loom-tray` intentionally share code from `src/common`.
 
+## VS Code Dev Container
+
+Open the repo in VS Code and run `Dev Containers: Reopen in Container`.
+
+The dev container installs the native build dependencies for:
+
+- `loomd`, `loomctl`, and `loom-tray`
+- EVDI userspace library and kernel module builds
+- GStreamer/VAAPI command-line tooling used by the streaming prototype
+- Android command-line SDK tools for `make android`
+- `bear`, `clangd`, and C/C++ headers for IntelliSense
+
+The container mounts `/lib/modules` and `/usr/src` from the host so EVDI can
+build against the current host kernel headers. If the exact running-kernel
+headers are not installed on the host, install them there first:
+
+```bash
+sudo apt install "linux-headers-$(uname -r)"
+```
+
+Useful container build commands:
+
+```bash
+make all
+make android
+make evdi-module
+make evdi-all
+make compile_commands
+```
+
+`make compile_commands` regenerates `compile_commands.json` with `bear` for
+VS Code C/C++ and clangd navigation.
+
 `loomd` now starts as a controller with zero configured displays. Add displays
 explicitly through `loomctl`:
 
