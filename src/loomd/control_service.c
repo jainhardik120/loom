@@ -18,12 +18,13 @@ static int method_status(sd_bus_message *message, void *userdata, sd_bus_error *
 
     snprintf(status,
              sizeof(status),
-             "loomd running; evdi_card=%d; connected=%s; capture=%s; dump_frame=%s; stream=%s; stream_target=%s:%d; mode_limit=%dx%d@%d",
+             "loomd running; evdi_card=%d; connected=%s; capture=%s; dump_frame=%s; stream=%s; stream_transport=%s; stream_target=%s:%d; mode_limit=%dx%d@%d",
              service->device ? service->device->device_index : -1,
              service->device && service->device->connected ? "true" : "false",
              service->settings && service->settings->capture_enabled ? "true" : "false",
              service->settings && service->settings->dump_frame ? "true" : "false",
              service->settings && service->settings->stream_enabled ? "true" : "false",
+             service->settings ? service->settings->stream_transport : "",
              service->settings ? service->settings->stream_host : "",
              service->settings ? service->settings->stream_port : 0,
              service->settings ? service->settings->mode_width : 0,
@@ -54,6 +55,15 @@ static int method_get_setting(sd_bus_message *message, void *userdata, sd_bus_er
     return sd_bus_reply_method_return(message, "s", value);
 }
 
+static bool setting_requires_stream_restart(const char *key)
+{
+    return strcmp(key, "stream_transport") == 0 ||
+           strcmp(key, "stream_host") == 0 ||
+           strcmp(key, "stream_port") == 0 ||
+           strcmp(key, "stream_bitrate_kbps") == 0 ||
+           strcmp(key, "stream_fps") == 0;
+}
+
 static int method_set_setting(sd_bus_message *message, void *userdata, sd_bus_error *ret_error)
 {
     LoomControlService *service = userdata;
@@ -79,10 +89,17 @@ static int method_set_setting(sd_bus_message *message, void *userdata, sd_bus_er
         service->device->dump_path = service->settings->dump_path;
         StreamConfig stream_config;
         stream_config.enabled = service->settings->stream_enabled;
+        snprintf(stream_config.transport, sizeof(stream_config.transport), "%s", service->settings->stream_transport);
         snprintf(stream_config.host, sizeof(stream_config.host), "%s", service->settings->stream_host);
         stream_config.port = service->settings->stream_port;
         stream_config.bitrate_kbps = service->settings->stream_bitrate_kbps;
         stream_config.fps = service->settings->stream_fps;
+        if (stream_config.enabled &&
+            service->device->stream_encoder.running &&
+            setting_requires_stream_restart(key)) {
+            log_info("restarting stream encoder for setting change: %s", key);
+            stream_encoder_stop(&service->device->stream_encoder);
+        }
         stream_encoder_configure(&service->device->stream_encoder, &stream_config);
         if (!stream_config.enabled) {
             stream_encoder_stop(&service->device->stream_encoder);

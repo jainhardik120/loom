@@ -108,6 +108,7 @@ void loom_settings_defaults(LoomSettings *settings)
     settings->pixel_area_limit = (uint32_t)(settings->mode_width * settings->mode_height);
     settings->pixel_per_second_limit = settings->pixel_area_limit * (uint32_t)settings->mode_refresh;
     settings->stream_enabled = false;
+    snprintf(settings->stream_transport, sizeof(settings->stream_transport), "tcp");
     snprintf(settings->stream_host, sizeof(settings->stream_host), "127.0.0.1");
     settings->stream_port = 27183;
     settings->stream_bitrate_kbps = 8000;
@@ -191,6 +192,13 @@ bool loom_settings_set_value(LoomSettings *settings, const char *key, const char
         settings->stream_enabled = parsed_bool;
         return true;
     }
+    if (strcmp(key, "stream_transport") == 0) {
+        if (strcmp(value, "tcp") != 0 && strcmp(value, "usb_accessory") != 0) {
+            return false;
+        }
+        snprintf(settings->stream_transport, sizeof(settings->stream_transport), "%s", value);
+        return true;
+    }
     if (strcmp(key, "stream_host") == 0) {
         snprintf(settings->stream_host, sizeof(settings->stream_host), "%s", value);
         return true;
@@ -245,6 +253,8 @@ bool loom_settings_get_value(const LoomSettings *settings,
         snprintf(buffer, buffer_size, "%u", settings->pixel_per_second_limit);
     } else if (strcmp(key, "stream_enabled") == 0 || strcmp(key, "stream") == 0) {
         snprintf(buffer, buffer_size, "%s", settings->stream_enabled ? "true" : "false");
+    } else if (strcmp(key, "stream_transport") == 0) {
+        snprintf(buffer, buffer_size, "%s", settings->stream_transport);
     } else if (strcmp(key, "stream_host") == 0) {
         snprintf(buffer, buffer_size, "%s", settings->stream_host);
     } else if (strcmp(key, "stream_port") == 0) {
@@ -315,6 +325,7 @@ bool loom_settings_save(const LoomSettings *settings, const char *path)
     fprintf(file, "pixel_area_limit=%u\n", settings->pixel_area_limit);
     fprintf(file, "pixel_per_second_limit=%u\n", settings->pixel_per_second_limit);
     fprintf(file, "stream_enabled=%s\n", settings->stream_enabled ? "true" : "false");
+    fprintf(file, "stream_transport=%s\n", settings->stream_transport);
     fprintf(file, "stream_host=%s\n", settings->stream_host);
     fprintf(file, "stream_port=%d\n", settings->stream_port);
     fprintf(file, "stream_bitrate_kbps=%d\n", settings->stream_bitrate_kbps);
@@ -339,6 +350,7 @@ void loom_settings_print(const LoomSettings *settings)
     printf("pixel_area_limit=%u\n", settings->pixel_area_limit);
     printf("pixel_per_second_limit=%u\n", settings->pixel_per_second_limit);
     printf("stream_enabled=%s\n", settings->stream_enabled ? "true" : "false");
+    printf("stream_transport=%s\n", settings->stream_transport);
     printf("stream_host=%s\n", settings->stream_host);
     printf("stream_port=%d\n", settings->stream_port);
     printf("stream_bitrate_kbps=%d\n", settings->stream_bitrate_kbps);

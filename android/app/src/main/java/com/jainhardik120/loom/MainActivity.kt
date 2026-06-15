@@ -28,8 +28,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.jainhardik120.loom.stream.CompositeStreamSource
 import com.jainhardik120.loom.stream.H264StreamDecoder
 import com.jainhardik120.loom.stream.StreamStats
+import com.jainhardik120.loom.stream.TcpStreamSource
+import com.jainhardik120.loom.stream.UsbAccessoryStreamSource
 import com.jainhardik120.loom.ui.theme.LoomTheme
 
 class MainActivity : ComponentActivity() {
@@ -39,7 +42,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             LoomTheme {
-                StreamScreen { update ->
+                StreamScreen(
+                    usbAccessorySource = UsbAccessoryStreamSource(this@MainActivity),
+                    usbAccessoryEnabled = intent.getBooleanExtra("usb_accessory", false)
+                ) { update ->
                     runOnUiThread(update)
                 }
             }
@@ -48,11 +54,25 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun StreamScreen(runOnUiThread: (() -> Unit) -> Unit) {
+private fun StreamScreen(
+    usbAccessorySource: UsbAccessoryStreamSource,
+    usbAccessoryEnabled: Boolean,
+    runOnUiThread: (() -> Unit) -> Unit
+) {
     var stats by remember { mutableStateOf(StreamStats(status = "Waiting for Loom stream on USB")) }
     val decoder = remember {
+        val sources = if (usbAccessoryEnabled) {
+            listOf(
+                usbAccessorySource,
+                TcpStreamSource(27183)
+            )
+        } else {
+            listOf(TcpStreamSource(27183))
+        }
+
         H264StreamDecoder(
             port = 27183,
+            source = CompositeStreamSource(sources),
             onStats = { nextStats ->
                 runOnUiThread {
                     stats = nextStats

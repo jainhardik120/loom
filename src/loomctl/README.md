@@ -24,5 +24,7 @@ Live D-Bus commands expect `loomd` to be running on the same user session bus:
 ./build/loomctl status
 ./build/loomctl get capture_enabled
 ./build/loomctl set dump_frame false
+./build/loomctl set stream_transport tcp
+./build/loomctl set stream_transport usb_accessory
 ./build/loomctl set stream_enabled true
 ```

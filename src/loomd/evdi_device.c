@@ -20,6 +20,94 @@ static const unsigned char k_loom_display_edid[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1e
 };
 
+static void set_edid_descriptor_text(unsigned char *descriptor, unsigned char tag, const char *text)
+{
+    memset(descriptor, 0, 18);
+    descriptor[3] = tag;
+    descriptor[4] = 0x00;
+    size_t length = strlen(text);
+    if (length > 13) {
+        length = 13;
+    }
+    memcpy(descriptor + 5, text, length);
+    if (length < 13) {
+        descriptor[5 + length] = '\n';
+        for (size_t i = length + 1; i < 13; i++) {
+            descriptor[5 + i] = ' ';
+        }
+    }
+}
+
+static void set_edid_range_descriptor(unsigned char *descriptor, int refresh)
+{
+    memset(descriptor, 0, 18);
+    descriptor[3] = 0xfd;
+    descriptor[5] = 24;
+    descriptor[6] = refresh > 90 ? (unsigned char)refresh : 90;
+    descriptor[7] = 30;
+    descriptor[8] = 170;
+    descriptor[9] = 17;
+}
+
+static void set_edid_detailed_timing(unsigned char *descriptor, int width, int height, int refresh)
+{
+    int h_blank = 160;
+    int v_blank = 35;
+    int h_sync_offset = 48;
+    int h_sync_width = 32;
+    int v_sync_offset = 3;
+    int v_sync_width = 6;
+    int h_size_mm = 520;
+    int v_size_mm = (height * h_size_mm) / width;
+    int h_total = width + h_blank;
+    int v_total = height + v_blank;
+    int pixel_clock_10khz = (int)((long long)h_total * (long long)v_total *
+                                      (long long)refresh / 10000LL);
+
+    memset(descriptor, 0, 18);
+    descriptor[0] = (unsigned char)(pixel_clock_10khz & 0xff);
+    descriptor[1] = (unsigned char)((pixel_clock_10khz >> 8) & 0xff);
+    descriptor[2] = (unsigned char)(width & 0xff);
+    descriptor[3] = (unsigned char)(h_blank & 0xff);
+    descriptor[4] = (unsigned char)(((width >> 8) & 0x0f) << 4 | ((h_blank >> 8) & 0x0f));
+    descriptor[5] = (unsigned char)(height & 0xff);
+    descriptor[6] = (unsigned char)(v_blank & 0xff);
+    descriptor[7] = (unsigned char)(((height >> 8) & 0x0f) << 4 | ((v_blank >> 8) & 0x0f));
+    descriptor[8] = (unsigned char)(h_sync_offset & 0xff);
+    descriptor[9] = (unsigned char)(h_sync_width & 0xff);
+    descriptor[10] = (unsigned char)(((v_sync_offset & 0x0f) << 4) | (v_sync_width & 0x0f));
+    descriptor[11] = (unsigned char)(((h_sync_offset >> 8) & 0x03) << 6 |
+                                     (((h_sync_width >> 8) & 0x03) << 4) |
+                                     (((v_sync_offset >> 4) & 0x03) << 2) |
+                                     ((v_sync_width >> 4) & 0x03));
+    descriptor[12] = (unsigned char)(h_size_mm & 0xff);
+    descriptor[13] = (unsigned char)(v_size_mm & 0xff);
+    descriptor[14] = (unsigned char)(((h_size_mm >> 8) & 0x0f) << 4 |
+                                     ((v_size_mm >> 8) & 0x0f));
+    descriptor[17] = 0x1a;
+}
+
+static void build_loom_display_edid(EvdiDevice *device)
+{
+    memcpy(device->edid, k_loom_display_edid, sizeof(device->edid));
+
+    memset(device->edid + 35, 0x01, 18);
+    set_edid_detailed_timing(device->edid + 54,
+                             device->mode_width,
+                             device->mode_height,
+                             device->mode_refresh);
+    set_edid_descriptor_text(device->edid + 72, 0xfc, "Loom Display");
+    set_edid_descriptor_text(device->edid + 90, 0xff, "LOOMD0001");
+    set_edid_range_descriptor(device->edid + 108, device->mode_refresh);
+
+    device->edid[126] = 0;
+    unsigned int sum = 0;
+    for (int i = 0; i < 127; i++) {
+        sum += device->edid[i];
+    }
+    device->edid[127] = (unsigned char)((256 - (sum & 0xff)) & 0xff);
+}
+
 static const char *device_status_name(enum evdi_device_status status)
 {
     switch (status) {
@@ -239,6 +327,7 @@ bool evdi_device_open(EvdiDevice *device, int requested_device)
 
 void evdi_device_connect(EvdiDevice *device)
 {
+    build_loom_display_edid(device);
     log_info("connecting fake monitor EDID %dx%d@%d limit area=%u pps=%u",
              device->mode_width,
              device->mode_height,
@@ -246,8 +335,8 @@ void evdi_device_connect(EvdiDevice *device)
              device->pixel_area_limit,
              device->pixel_per_second_limit);
     evdi_connect2(device->handle,
-                  k_loom_display_edid,
-                  sizeof(k_loom_display_edid),
+                  device->edid,
+                  sizeof(device->edid),
                   device->pixel_area_limit,
                   device->pixel_per_second_limit);
     device->connected = true;

@@ -16,6 +16,7 @@ typedef struct LoomSettings {
     uint32_t pixel_area_limit;
     uint32_t pixel_per_second_limit;
     bool stream_enabled;
+    char stream_transport[32];
     char stream_host[128];
     int stream_port;
     int stream_bitrate_kbps;

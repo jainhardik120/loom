@@ -10,8 +10,15 @@ WARNINGS := -Wall -Wextra -Wpedantic
 LOOMD_CPPFLAGS := $(COMMON_CPPFLAGS) -Iloomd -I$(EVDI_DIR)/library
 LOOMD_LDFLAGS := -L$(EVDI_DIR)/library -Wl,-rpath,'$$ORIGIN/../third_party/evdi/library'
 SYSTEMD_LDLIBS := $(shell pkg-config --libs libsystemd)
+HAVE_LIBUSB := $(shell pkg-config --exists libusb-1.0 && echo 1 || echo 0)
+LIBUSB_CPPFLAGS := $(shell pkg-config --cflags libusb-1.0 2>/dev/null)
+LIBUSB_LDLIBS := $(shell pkg-config --libs libusb-1.0 2>/dev/null)
 
-LOOMD_LDLIBS := -levdi $(SYSTEMD_LDLIBS) -pthread
+ifeq ($(HAVE_LIBUSB),1)
+LOOMD_CPPFLAGS += -DHAVE_LIBUSB $(LIBUSB_CPPFLAGS)
+endif
+
+LOOMD_LDLIBS := -levdi $(SYSTEMD_LDLIBS) $(LIBUSB_LDLIBS) -pthread
 
 COMMON_SRCS := \
 	common/logging.c \
@@ -25,6 +32,7 @@ LOOMD_SRCS := \
 	loomd/framebuffer.c \
 	loomd/event_loop.c \
 	loomd/stream.c \
+	loomd/usb_accessory.c \
 	$(COMMON_SRCS)
 
 LOOMCTL_SRCS := \

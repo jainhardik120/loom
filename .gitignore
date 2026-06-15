@@ -9,6 +9,7 @@ Module.symvers
 modules.order
 
 build/
+logs/
 frame.raw
 
 src/loomd/frame.raw

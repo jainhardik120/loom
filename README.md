@@ -4,10 +4,10 @@ Monorepo for the Loom tablet-as-secondary-display project.
 
 ## Components
 
-- `loomd`: Linux desktop daemon. It owns EVDI lifecycle, receives framebuffer updates, and will later encode and stream frames.
-- `loomctl`: planned command-line control client for `loomd`.
-- `gnome-shell-extension`: planned GNOME Shell integration for status and display controls.
-- `android`: planned Android tablet client.
+- `loomd`: Linux desktop daemon. It owns EVDI lifecycle, receives framebuffer updates, encodes frames, and streams them.
+- `loomctl`: command-line control client for `loomd`.
+- `loom-tray`: planned desktop tray/status UI for managing `loomd`.
+- `android`: Android tablet client using MediaCodec decode and USB/TCP stream sources.
 - `src/common`: shared C code for logging, settings, and control protocol constants.
 - `src/loomd`: daemon-specific C code.
 - `src/loomctl`: command-line client C code.
@@ -19,7 +19,9 @@ Current prototype pipeline:
 GNOME / Wayland
   -> EVDI virtual display
   -> loomd framebuffer updates
-  -> raw frame/debug output
+  -> AMD VAAPI H.264 encode
+  -> USB accessory or TCP transport
+  -> Android MediaCodec fullscreen client
 ```
 
 Future pipeline:
@@ -33,14 +35,13 @@ GNOME / Wayland
   -> Android MediaCodec fullscreen client
 ```
 
-Current USB streaming prototype:
+Current streaming prototype:
 
 ```text
 loomd EVDI CPU framebuffer
   -> GStreamer vah264enc on AMD VAAPI
-  -> H.264 byte-stream TCP socket
-  -> ADB forward over USB
-  -> Android ServerSocket
+  -> H.264 byte-stream
+  -> Android USB accessory bulk endpoint or TCP socket
   -> Android MediaCodec decoder
   -> SurfaceView
 ```
@@ -104,7 +105,7 @@ sudo ./build/loomd --no-capture
 sudo ./build/loomd --dump-frame frame.raw
 ```
 
-## Android USB Stream
+## Android Stream
 
 Build and install the Android app:
 
@@ -116,17 +117,23 @@ adb shell am start -n com.jainhardik120.loom/.MainActivity
 cd ..
 ```
 
-Forward the host TCP port to the app's tablet-side listener over USB:
+USB accessory streaming:
+
+```bash
+LD_LIBRARY_PATH=third_party/evdi/library sudo -E ./build/loomd --config "$HOME/.config/loom/loomd.conf"
+./build/loomctl set stream_transport usb_accessory
+./build/loomctl set stream_bitrate_kbps 8000
+./build/loomctl set stream_fps 30
+./build/loomctl set stream_enabled true
+```
+
+TCP fallback through ADB:
 
 ```bash
 adb forward tcp:27183 tcp:27183
-```
-
-Enable streaming on a running `loomd`:
-
-```bash
 ./build/loomctl set stream_host 127.0.0.1
 ./build/loomctl set stream_port 27183
+./build/loomctl set stream_transport tcp
 ./build/loomctl set stream_bitrate_kbps 8000
 ./build/loomctl set stream_fps 30
 ./build/loomctl set stream_enabled true
@@ -139,7 +146,7 @@ For settings that should persist across daemon restarts:
 ./build/loomctl settings set stream_port 27183
 ```
 
-The Android app listens on port `27183` and decodes H.264 using `MediaCodec`.
+The Android app prefers an attached Loom USB accessory stream and falls back to TCP on port `27183`. It decodes H.264 using `MediaCodec`.
 
 ## Settings and Control
 

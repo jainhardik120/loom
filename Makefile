@@ -2,7 +2,7 @@ ROOT_DIR := $(abspath .)
 EVDI_DIR := $(ROOT_DIR)/third_party/evdi
 SRC_DIR := $(ROOT_DIR)/src
 
-.PHONY: all evdi loomd loomctl gnome-shell-extension android clean run-loomd submodules
+.PHONY: all evdi loomd loomctl android clean run-loomd submodules
 
 all: loomd loomctl
 
@@ -18,11 +18,8 @@ loomd: evdi
 loomctl:
 	$(MAKE) -C $(SRC_DIR) loomctl EVDI_DIR=$(EVDI_DIR)
 
-gnome-shell-extension:
-	@echo "GNOME Shell extension is not implemented yet"
-
 android:
-	@echo "Android client is not implemented yet"
+	cd android && ./gradlew :app:assembleDebug
 
 run-loomd: loomd
 	LD_LIBRARY_PATH=$(EVDI_DIR)/library sudo -E $(ROOT_DIR)/build/loomd

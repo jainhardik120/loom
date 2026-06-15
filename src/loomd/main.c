@@ -6,6 +6,7 @@
 #include "loom_settings.h"
 
 #include <stdbool.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -24,6 +25,8 @@ static void print_usage(const char *argv0)
 
 int main(int argc, char **argv)
 {
+    signal(SIGPIPE, SIG_IGN);
+
     LoomSettings settings;
     char default_config_path[512];
     const char *config_path = loom_settings_default_user_path(default_config_path,
@@ -107,6 +110,7 @@ int main(int argc, char **argv)
     device.pixel_per_second_limit = settings.pixel_per_second_limit;
     StreamConfig stream_config;
     stream_config.enabled = settings.stream_enabled;
+    snprintf(stream_config.transport, sizeof(stream_config.transport), "%s", settings.stream_transport);
     snprintf(stream_config.host, sizeof(stream_config.host), "%s", settings.stream_host);
     stream_config.port = settings.stream_port;
     stream_config.bitrate_kbps = settings.stream_bitrate_kbps;

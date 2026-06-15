@@ -32,10 +32,15 @@ EvdiDevice -> Framebuffer -> Encoder(VAAPI/AMD render node) -> Transport(ADB/USB
 Current streaming prototype uses GStreamer:
 
 ```text
-Framebuffer -> gst-launch-1.0 fdsrc -> rawvideoparse -> videoconvert -> vah264enc -> tcpclientsink
+Framebuffer -> gst-launch-1.0 fdsrc -> rawvideoparse -> videoconvert -> vah264enc -> Transport
 ```
 
 `vah264enc` is the GStreamer VAAPI H.264 encoder. On the current laptop it resolves to AMD Radeon Graphics on `/dev/dri/renderD129`.
+
+Transports:
+
+- `tcp`: sends H.264 Annex-B bytes to the Android app through `tcpclientsink`; this works with `adb forward tcp:27183 tcp:27183`.
+- `usb_accessory`: switches an attached Android device into Android Open Accessory mode through libusb and sends H.264 Annex-B bytes over the accessory bulk OUT endpoint.
 
 ## Build
 
@@ -56,6 +61,16 @@ The daemon links against the EVDI user-space library built from:
 ```text
 ../../third_party/evdi/library/libevdi.so
 ```
+
+USB accessory transport requires libusb headers at build time:
+
+```bash
+sudo apt install libusb-1.0-0-dev
+make clean
+make loomd
+```
+
+Without `libusb-1.0-0-dev`, `loomd` still builds and TCP streaming still works, but `stream_transport=usb_accessory` logs a dependency error.
 
 ## Run
 
@@ -106,6 +121,7 @@ Streaming settings:
 
 ```text
 stream_enabled=true|false
+stream_transport=tcp|usb_accessory
 stream_host=127.0.0.1
 stream_port=27183
 stream_bitrate_kbps=8000
@@ -113,6 +129,24 @@ stream_fps=30
 ```
 
 When `stream_enabled` becomes true and a framebuffer is already registered, `loomd` starts the GStreamer encoder immediately.
+
+TCP streaming:
+
+```bash
+adb forward tcp:27183 tcp:27183
+./build/loomctl set stream_transport tcp
+./build/loomctl set stream_enabled true
+```
+
+USB accessory streaming:
+
+```bash
+LD_LIBRARY_PATH=third_party/evdi/library sudo -E ./build/loomd --config "$HOME/.config/loom/loomd.conf"
+./build/loomctl set stream_transport usb_accessory
+./build/loomctl set stream_enabled true
+```
+
+The Android app declares an accessory filter for manufacturer `Loom`, model `Loom Display`, version `0.1`.
 
 Stop with Ctrl+C. Shutdown unregisters the framebuffer, disconnects EVDI, frees memory, and closes the handle.
 

@@ -6,20 +6,21 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import java.io.BufferedInputStream
-import java.net.ServerSocket
-import java.net.Socket
+import java.io.InputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 class H264StreamDecoder(
     private val port: Int,
+    private val source: StreamInputSource,
     private val onStats: (StreamStats) -> Unit
 ) {
     private val tag = "LoomDecoder"
+    private val statsTag = "LoomStats"
+    private val maxDecodeBacklog = 8L
+    private val presentationIntervalUs = 16_666L
     private val running = AtomicBoolean(false)
     private var worker: Thread? = null
-    private var serverSocket: ServerSocket? = null
-    private var clientSocket: Socket? = null
     private var stats = StreamStats(port = port)
 
     fun start(surface: Surface) {
@@ -28,7 +29,7 @@ class H264StreamDecoder(
             return
         }
 
-        Log.i(tag, "starting decoder server on port $port")
+        Log.i(tag, "starting decoder from ${source.name}")
         worker = thread(name = "loom-h264-decoder") {
             runDecoder(surface)
         }
@@ -36,15 +37,8 @@ class H264StreamDecoder(
 
     fun stop() {
         running.set(false)
-        Log.i(tag, "stopping decoder server")
-        try {
-            clientSocket?.close()
-        } catch (_: Exception) {
-        }
-        try {
-            serverSocket?.close()
-        } catch (_: Exception) {
-        }
+        Log.i(tag, "stopping decoder")
+        source.close()
         worker?.interrupt()
         worker = null
     }
@@ -52,15 +46,11 @@ class H264StreamDecoder(
     private fun runDecoder(surface: Surface) {
         var codec: MediaCodec? = null
         try {
-            publishStats(stats.copy(status = "Listening on 127.0.0.1:$port"))
-            Log.i(tag, "listening on port $port")
-            serverSocket = ServerSocket(port)
             while (running.get()) {
-                clientSocket = serverSocket?.accept()
-                val socket = clientSocket ?: continue
-                socket.tcpNoDelay = true
-                publishStats(stats.copy(status = "Stream connected"))
-                Log.i(tag, "stream connected from ${socket.remoteSocketAddress}")
+                publishStats(stats.copy(status = "Waiting on ${source.name}"))
+                val input = source.open(running) ?: continue
+                publishStats(stats.copy(status = "Stream connected (${source.name})"))
+                Log.i(tag, "stream connected from ${source.name}")
 
                 codec = MediaCodec.createDecoderByType("video/avc")
                 val format = MediaFormat.createVideoFormat("video/avc", 1920, 1080)
@@ -68,11 +58,12 @@ class H264StreamDecoder(
                 codec.configure(format, surface, null, 0)
                 codec.start()
 
-                decodeSocket(socket, codec)
+                decodeInput(input, codec)
 
                 codec.stop()
                 codec.release()
                 codec = null
+                source.close()
                 publishStats(
                     stats.copy(
                         status = "Stream disconnected",
@@ -97,12 +88,13 @@ class H264StreamDecoder(
             } catch (_: Exception) {
             }
             running.set(false)
+            source.close()
         }
     }
 
-    private fun decodeSocket(socket: Socket, codec: MediaCodec) {
+    private fun decodeInput(inputStream: InputStream, codec: MediaCodec) {
         val parser = AnnexBParser()
-        val input = BufferedInputStream(socket.getInputStream(), 1024 * 256)
+        val input = BufferedInputStream(inputStream, 1024 * 256)
         val bufferInfo = MediaCodec.BufferInfo()
         val readBuffer = ByteArray(64 * 1024)
         var presentationTimeUs = 0L
@@ -111,10 +103,10 @@ class H264StreamDecoder(
         var smoothedFps = stats.fps
         var queuedSamples = stats.queuedSamples
         var renderedFrames = stats.renderedFrames
-        var droppedNals = stats.droppedNals
+        var droppedAccessUnits = stats.droppedNals
         var windowStartedAt = SystemClock.elapsedRealtime()
 
-        while (running.get() && !socket.isClosed) {
+        while (running.get()) {
             val read = input.read(readBuffer)
             if (read < 0) break
             if (read == 0) continue
@@ -122,32 +114,42 @@ class H264StreamDecoder(
             bytesInWindow += read.toLong()
             parser.append(readBuffer, read)
             while (true) {
-                val nal = parser.nextNal() ?: break
-                val inputIndex = codec.dequeueInputBuffer(10_000)
-                if (inputIndex >= 0) {
-                    val inputBuffer = codec.getInputBuffer(inputIndex) ?: continue
-                    inputBuffer.clear()
-                    if (nal.size <= inputBuffer.capacity()) {
-                        inputBuffer.put(nal)
-                        codec.queueInputBuffer(
-                            inputIndex,
-                            0,
-                            nal.size,
-                            presentationTimeUs,
-                            nalFlags(nal)
-                        )
-                        presentationTimeUs += 33_333
-                        queuedSamples += 1
-                    } else {
-                        droppedNals += 1
-                    }
-                }
-
                 val drainResult = drainOutput(codec, bufferInfo)
                 renderedInWindow += drainResult.renderedFrames
                 renderedFrames += drainResult.renderedFrames
                 if (drainResult.width > 0 && drainResult.height > 0) {
                     publishStats(stats.copy(width = drainResult.width, height = drainResult.height))
+                }
+
+                val accessUnit = parser.nextAccessUnit() ?: break
+                val backlog = queuedSamples - renderedFrames
+                if (backlog > maxDecodeBacklog && !accessUnit.isKeyFrame) {
+                    droppedAccessUnits += 1
+                    continue
+                }
+
+                val inputTimeoutUs = if (accessUnit.isKeyFrame) 5_000L else 0L
+                val inputIndex = codec.dequeueInputBuffer(inputTimeoutUs)
+                if (inputIndex < 0) {
+                    droppedAccessUnits += 1
+                    continue
+                }
+
+                val inputBuffer = codec.getInputBuffer(inputIndex) ?: continue
+                inputBuffer.clear()
+                if (accessUnit.data.size <= inputBuffer.capacity()) {
+                    inputBuffer.put(accessUnit.data)
+                    codec.queueInputBuffer(
+                        inputIndex,
+                        0,
+                        accessUnit.data.size,
+                        presentationTimeUs,
+                        sampleFlags(accessUnit)
+                    )
+                    presentationTimeUs += presentationIntervalUs
+                    queuedSamples += 1
+                } else {
+                    droppedAccessUnits += 1
                 }
             }
             val drainResult = drainOutput(codec, bufferInfo)
@@ -174,8 +176,23 @@ class H264StreamDecoder(
                         bitrateKbps = (bytesInWindow * 8.0) / elapsedMs,
                         queuedSamples = queuedSamples,
                         renderedFrames = renderedFrames,
-                        droppedNals = droppedNals
+                        droppedNals = droppedAccessUnits
                     )
+                )
+                Log.i(
+                    statsTag,
+                    "fps=%.2f bitrate_kbps=%.0f resolution=%dx%d queued=%d rendered=%d backlog=%d dropped_access_units=%d source=\"%s\""
+                        .format(
+                            smoothedFps,
+                            (bytesInWindow * 8.0) / elapsedMs,
+                            stats.width,
+                            stats.height,
+                            queuedSamples,
+                            renderedFrames,
+                            queuedSamples - renderedFrames,
+                            droppedAccessUnits,
+                            source.name
+                        )
                 )
                 bytesInWindow = 0L
                 renderedInWindow = 0L
@@ -229,19 +246,11 @@ class H264StreamDecoder(
         val height: Int
     )
 
-    private fun nalFlags(nal: ByteArray): Int {
-        val offset = when {
-            nal.size > 4 && nal[0] == 0.toByte() && nal[1] == 0.toByte() &&
-                nal[2] == 0.toByte() && nal[3] == 1.toByte() -> 4
-            nal.size > 3 && nal[0] == 0.toByte() && nal[1] == 0.toByte() &&
-                nal[2] == 1.toByte() -> 3
-            else -> 0
-        }
-        if (offset >= nal.size) return 0
-        return when (nal[offset].toInt() and 0x1f) {
-            5 -> MediaCodec.BUFFER_FLAG_KEY_FRAME
-            7, 8 -> MediaCodec.BUFFER_FLAG_CODEC_CONFIG
-            else -> 0
+    private fun sampleFlags(accessUnit: AnnexBParser.AccessUnit): Int {
+        return if (accessUnit.isKeyFrame) {
+            MediaCodec.BUFFER_FLAG_KEY_FRAME
+        } else {
+            0
         }
     }
 }

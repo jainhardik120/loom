@@ -25,6 +25,7 @@ typedef struct EvdiDevice {
     int mode_refresh;
     uint32_t pixel_area_limit;
     uint32_t pixel_per_second_limit;
+    unsigned char edid[128];
     StreamEncoder stream_encoder;
 } EvdiDevice;
 
