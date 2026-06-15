@@ -6,7 +6,7 @@ Monorepo for the Loom tablet-as-secondary-display project.
 
 - `loomd`: Linux desktop daemon. It owns EVDI lifecycle, receives framebuffer updates, encodes frames, and streams them.
 - `loomctl`: command-line control client for `loomd`.
-- `loom-tray`: planned desktop tray/status UI for managing `loomd`.
+- `loom-tray`: GTK/Ayatana AppIndicator top-bar controls for managing `loomd`.
 - `android`: Android tablet client using MediaCodec decode and USB/TCP stream sources.
 - `src/common`: shared C code for logging, settings, and control protocol constants.
 - `src/loomd`: daemon-specific C code.
@@ -72,9 +72,10 @@ This builds the EVDI user-space library from `third_party/evdi/library` and then
 ```text
 build/loomd
 build/loomctl
+build/loom-tray
 ```
 
-`loomd` and `loomctl` intentionally share code from `src/common`.
+`loomd`, `loomctl`, and `loom-tray` intentionally share code from `src/common`.
 
 ## Run
 
@@ -94,6 +95,18 @@ Or:
 
 ```bash
 make run-loomd
+```
+
+Run the desktop control UI:
+
+```bash
+./build/loom-tray
+```
+
+Build dependencies for `loom-tray`:
+
+```bash
+sudo apt install libgtk-3-dev libayatana-appindicator3-dev
 ```
 
 Useful daemon options:

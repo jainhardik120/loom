@@ -6,10 +6,13 @@ CC ?= gcc
 CFLAGS ?= -O2
 COMMON_CPPFLAGS := -D_POSIX_C_SOURCE=200809L -Icommon
 WARNINGS := -Wall -Wextra -Wpedantic
+GTK_WARNINGS := -Wall -Wextra -Wno-deprecated-declarations
 
 LOOMD_CPPFLAGS := $(COMMON_CPPFLAGS) -Iloomd -I$(EVDI_DIR)/library
 LOOMD_LDFLAGS := -L$(EVDI_DIR)/library -Wl,-rpath,'$$ORIGIN/../third_party/evdi/library'
 SYSTEMD_LDLIBS := $(shell pkg-config --libs libsystemd)
+TRAY_CPPFLAGS := $(shell pkg-config --cflags gtk+-3.0 ayatana-appindicator3-0.1)
+TRAY_LDLIBS := $(shell pkg-config --libs gtk+-3.0 ayatana-appindicator3-0.1)
 HAVE_LIBUSB := $(shell pkg-config --exists libusb-1.0 && echo 1 || echo 0)
 LIBUSB_CPPFLAGS := $(shell pkg-config --cflags libusb-1.0 2>/dev/null)
 LIBUSB_LDLIBS := $(shell pkg-config --libs libusb-1.0 2>/dev/null)
@@ -41,13 +44,19 @@ LOOMCTL_SRCS := \
 	common/loom_control_dbus.c \
 	common/logging.c
 
-.PHONY: all loomd loomctl clean
+LOOM_TRAY_SRCS := \
+	loom-tray/main.c \
+	common/loom_control_dbus.c
 
-all: loomd loomctl
+.PHONY: all loomd loomctl loom-tray clean
+
+all: loomd loomctl loom-tray
 
 loomd: $(BUILD_DIR)/loomd
 
 loomctl: $(BUILD_DIR)/loomctl
+
+loom-tray: $(BUILD_DIR)/loom-tray
 
 $(BUILD_DIR)/loomd: $(LOOMD_SRCS) $(EVDI_DIR)/library/libevdi.so
 	@mkdir -p $(BUILD_DIR)
@@ -56,6 +65,10 @@ $(BUILD_DIR)/loomd: $(LOOMD_SRCS) $(EVDI_DIR)/library/libevdi.so
 $(BUILD_DIR)/loomctl: $(LOOMCTL_SRCS)
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(COMMON_CPPFLAGS) $(CFLAGS) $(WARNINGS) $(LOOMCTL_SRCS) $(SYSTEMD_LDLIBS) -o $@
+
+$(BUILD_DIR)/loom-tray: $(LOOM_TRAY_SRCS)
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(COMMON_CPPFLAGS) $(TRAY_CPPFLAGS) $(CFLAGS) $(GTK_WARNINGS) $(LOOM_TRAY_SRCS) $(SYSTEMD_LDLIBS) $(TRAY_LDLIBS) -o $@
 
 $(EVDI_DIR)/library/libevdi.so:
 	$(MAKE) -C $(EVDI_DIR) library

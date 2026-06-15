@@ -2,9 +2,9 @@ ROOT_DIR := $(abspath .)
 EVDI_DIR := $(ROOT_DIR)/third_party/evdi
 SRC_DIR := $(ROOT_DIR)/src
 
-.PHONY: all evdi loomd loomctl android clean run-loomd submodules
+.PHONY: all evdi loomd loomctl loom-tray android clean run-loomd submodules
 
-all: loomd loomctl
+all: loomd loomctl loom-tray
 
 submodules:
 	git submodule update --init --recursive
@@ -17,6 +17,9 @@ loomd: evdi
 
 loomctl:
 	$(MAKE) -C $(SRC_DIR) loomctl EVDI_DIR=$(EVDI_DIR)
+
+loom-tray:
+	$(MAKE) -C $(SRC_DIR) loom-tray EVDI_DIR=$(EVDI_DIR)
 
 android:
 	cd android && ./gradlew :app:assembleDebug

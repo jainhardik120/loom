@@ -16,7 +16,7 @@ static int open_user_bus(sd_bus **bus)
     return rc;
 }
 
-int loom_control_status(void)
+int loom_control_status_text(char *buffer, size_t buffer_size)
 {
     sd_bus *bus = NULL;
     sd_bus_error error = SD_BUS_ERROR_NULL;
@@ -51,13 +51,13 @@ int loom_control_status(void)
         return 1;
     }
 
-    printf("%s\n", status);
+    snprintf(buffer, buffer_size, "%s", status);
     sd_bus_message_unref(reply);
     sd_bus_unref(bus);
     return 0;
 }
 
-int loom_control_get_setting(const char *key)
+int loom_control_get_setting_value(const char *key, char *buffer, size_t buffer_size)
 {
     sd_bus *bus = NULL;
     sd_bus_error error = SD_BUS_ERROR_NULL;
@@ -93,13 +93,13 @@ int loom_control_get_setting(const char *key)
         return 1;
     }
 
-    printf("%s\n", value);
+    snprintf(buffer, buffer_size, "%s", value);
     sd_bus_message_unref(reply);
     sd_bus_unref(bus);
     return 0;
 }
 
-int loom_control_set_setting(const char *key, const char *value)
+int loom_control_set_setting_quiet(const char *key, const char *value)
 {
     sd_bus *bus = NULL;
     sd_bus_error error = SD_BUS_ERROR_NULL;
@@ -136,8 +136,39 @@ int loom_control_set_setting(const char *key, const char *value)
         return 1;
     }
 
-    printf("%s\n", changed ? "ok" : "unchanged");
     sd_bus_message_unref(reply);
     sd_bus_unref(bus);
+    return changed ? 0 : 0;
+}
+
+int loom_control_status(void)
+{
+    char status[1024];
+    int rc = loom_control_status_text(status, sizeof(status));
+    if (rc != 0) {
+        return rc;
+    }
+    printf("%s\n", status);
+    return 0;
+}
+
+int loom_control_get_setting(const char *key)
+{
+    char value[256];
+    int rc = loom_control_get_setting_value(key, value, sizeof(value));
+    if (rc != 0) {
+        return rc;
+    }
+    printf("%s\n", value);
+    return 0;
+}
+
+int loom_control_set_setting(const char *key, const char *value)
+{
+    int rc = loom_control_set_setting_quiet(key, value);
+    if (rc != 0) {
+        return rc;
+    }
+    printf("ok\n");
     return 0;
 }
