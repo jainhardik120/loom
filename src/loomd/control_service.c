@@ -104,10 +104,14 @@ static int method_set_setting(sd_bus_message *message, void *userdata, sd_bus_er
         if (!stream_config.enabled) {
             stream_encoder_stop(&service->device->stream_encoder);
         } else if (service->device->framebuffer.registered) {
-            stream_encoder_start(&service->device->stream_encoder,
-                                 service->device->framebuffer.evdi_buffer.width,
-                                 service->device->framebuffer.evdi_buffer.height,
-                                 service->device->framebuffer.evdi_buffer.stride);
+            if (stream_encoder_start(&service->device->stream_encoder,
+                                     service->device->framebuffer.evdi_buffer.width,
+                                     service->device->framebuffer.evdi_buffer.height,
+                                     service->device->framebuffer.evdi_buffer.stride)) {
+                stream_encoder_write_frame(&service->device->stream_encoder,
+                                           service->device->framebuffer.evdi_buffer.buffer,
+                                           service->device->framebuffer.size_bytes);
+            }
         }
     }
 
@@ -227,10 +231,22 @@ bool control_service_start(LoomControlService *service,
     service->settings = settings;
     service->device = device;
 
-    int rc = sd_bus_open_user(&service->bus);
+    int rc = -ENXIO;
+    if (geteuid() == 0 && getenv("SUDO_UID")) {
+        rc = open_sudo_user_bus(&service->bus);
+        if (rc < 0) {
+            log_warn("failed to open invoking user's D-Bus as root: %s", strerror(-rc));
+        }
+    }
+
+    if (rc < 0) {
+        rc = sd_bus_open_user(&service->bus);
+    }
     if (rc < 0) {
         log_warn("sd_bus_open_user failed as current user: %s", strerror(-rc));
-        rc = open_sudo_user_bus(&service->bus);
+        if (geteuid() != 0 || !getenv("SUDO_UID")) {
+            rc = open_sudo_user_bus(&service->bus);
+        }
 
         if (rc < 0) {
             log_warn("D-Bus disabled: failed to connect to user bus: %s", strerror(-rc));

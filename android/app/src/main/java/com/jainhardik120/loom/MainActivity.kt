@@ -43,8 +43,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             LoomTheme {
                 StreamScreen(
-                    usbAccessorySource = UsbAccessoryStreamSource(this@MainActivity),
-                    usbAccessoryEnabled = intent.getBooleanExtra("usb_accessory", false)
+                    usbAccessorySource = UsbAccessoryStreamSource(this@MainActivity)
                 ) { update ->
                     runOnUiThread(update)
                 }
@@ -56,23 +55,18 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun StreamScreen(
     usbAccessorySource: UsbAccessoryStreamSource,
-    usbAccessoryEnabled: Boolean,
     runOnUiThread: (() -> Unit) -> Unit
 ) {
     var stats by remember { mutableStateOf(StreamStats(status = "Waiting for Loom stream on USB")) }
     val decoder = remember {
-        val sources = if (usbAccessoryEnabled) {
-            listOf(
-                usbAccessorySource,
-                TcpStreamSource(27183)
-            )
-        } else {
-            listOf(TcpStreamSource(27183))
-        }
-
         H264StreamDecoder(
             port = 27183,
-            source = CompositeStreamSource(sources),
+            source = CompositeStreamSource(
+                listOf(
+                    usbAccessorySource,
+                    TcpStreamSource(27183)
+                )
+            ),
             onStats = { nextStats ->
                 runOnUiThread {
                     stats = nextStats
